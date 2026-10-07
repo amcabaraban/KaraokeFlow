@@ -1,0 +1,9 @@
+plugins { id 'com.android.application' }
+
+android {
+ namespace 'com.karaokeflow.app'
+ compileSdk 35
+ defaultConfig { applicationId 'com.karaokeflow.app'; minSdk 26; targetSdk 35; versionCode 1; versionName '0.1.0-beta' }
+}
+
+dependencies { implementation 'androidx.appcompat:appcompat:1.7.0' }
