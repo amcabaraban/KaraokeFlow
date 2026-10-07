@@ -1,9 +1,29 @@
-plugins { id 'com.android.application' }
-
-android {
- namespace 'com.karaokeflow.app'
- compileSdk 35
- defaultConfig { applicationId 'com.karaokeflow.app'; minSdk 26; targetSdk 35; versionCode 1; versionName '0.1.0-beta' }
+plugins {
+    id 'com.android.application'
 }
 
-dependencies { implementation 'androidx.appcompat:appcompat:1.7.0' }
+android {
+    namespace 'com.karaokeflow.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.karaokeflow.app'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0-beta'
+    }
+}
+
+configurations.configureEach {
+    resolutionStrategy {
+        force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+}
