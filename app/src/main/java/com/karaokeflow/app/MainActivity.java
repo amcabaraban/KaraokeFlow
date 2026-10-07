@@ -28,11 +28,14 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private static final int CSV = 1, FOLDER = 2, SF2 = 3, MUTED = 0xffa5aabe;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private List<SongCatalog.Song> songs = new ArrayList<>();
+    private final List<SongCatalog.Song> queue = new ArrayList<>();
+    private boolean showQueue;
     private LinearLayout list;
     private EditText search;
-    private TextView setupStatus, playerStatus, selectedTitle, currentLyric, nextLyric, clock, results;
+    private TextView setupStatus, playerStatus, selectedTitle, currentLyric, nextLyric, clock, results, queueLabel;
+    private TextView libraryTab, queueTab;
     private SeekBar progress;
-    private Button play, pause, stop;
+    private Button play, pause, stop, next, replay;
     private SharedPreferences preferences;
     private SongFiles files;
     private PlaybackEngine engine;
@@ -66,16 +69,16 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         root.requestApplyInsets();
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView brand = text("KaraokeFlow", 28, Color.WHITE);
+        TextView brand = text("KaraokeFlow", 26, Color.WHITE);
         brand.setTypeface(null, 1);
         header.addView(brand, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView mode = text("LIVE\nSTAGE", 10, 0xffc8b8ff);
+        TextView mode = text("VIDEOKE", 10, 0xffc8b8ff);
         mode.setGravity(Gravity.CENTER);
         mode.setTypeface(null, 1);
         mode.setBackground(background(0xff251d45, 12));
         header.addView(mode, new LinearLayout.LayoutParams(dp(62), dp(42)));
         root.addView(header);
-        TextView subtitle = text("Your songs. Your stage.", 13, MUTED);
+        TextView subtitle = text("Search by number, title, or artist. Queue the next singers.", 13, MUTED);
         subtitle.setPadding(dp(4), 0, dp(4), dp(8));
         root.addView(subtitle);
 
@@ -84,7 +87,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         player.setGravity(Gravity.CENTER_HORIZONTAL);
         player.setPadding(dp(18), dp(14), dp(18), dp(14));
         player.setBackground(stageBackground());
-        TextView nowPlaying = text("NOW PLAYING", 10, 0xffb9a9e9);
+        TextView nowPlaying = text("NOW SINGING", 10, 0xffb9a9e9);
         nowPlaying.setTypeface(null, 1); player.addView(nowPlaying);
         selectedTitle = text("Choose a song to begin", 19, Color.WHITE);
         selectedTitle.setTypeface(null, 1); selectedTitle.setGravity(Gravity.CENTER);
@@ -110,13 +113,22 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         play.setMinHeight(dp(52));
         pause = button("Pause", v -> engine.pause());
         stop = button("Stop", v -> stopPlayback());
+        next = button("Next", v -> playNext());
+        replay = button("Replay", v -> replayCurrent());
         play.setContentDescription("Play or resume the selected song");
         pause.setContentDescription("Pause playback");
+        next.setContentDescription("Play next queued song");
+        replay.setContentDescription("Replay current song from beginning");
         stop.setContentDescription("Stop playback and return to the beginning");
         controls.addView(stop, new LinearLayout.LayoutParams(0, dp(48), 1));
         controls.addView(play, new LinearLayout.LayoutParams(0, dp(54), 1.5f));
-        controls.addView(pause, new LinearLayout.LayoutParams(0, dp(48), 1));
+        controls.addView(pause, new LinearLayout.LayoutParams(0, dp(48), 1)); // row1: stop/play/pause
         player.addView(controls);
+        LinearLayout transport2 = new LinearLayout(this);
+        transport2.setGravity(Gravity.CENTER_VERTICAL);
+        transport2.addView(replay, new LinearLayout.LayoutParams(0, dp(48), 1));
+        transport2.addView(next, new LinearLayout.LayoutParams(0, dp(48), 1));
+        player.addView(transport2);
         root.addView(player, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout sources = new LinearLayout(this);
@@ -131,10 +143,19 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
 
         LinearLayout libraryHeader = new LinearLayout(this);
         libraryHeader.setGravity(Gravity.CENTER_VERTICAL);
-        TextView libraryTitle = text("Your library", 21, Color.WHITE); libraryTitle.setTypeface(null, 1);
+        TextView libraryTitle = text("Songbook", 21, Color.WHITE); libraryTitle.setTypeface(null, 1);
         libraryHeader.addView(libraryTitle, new LinearLayout.LayoutParams(0, -2, 1));
         results = text("", 12, MUTED); libraryHeader.addView(results);
         root.addView(libraryHeader);
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setGravity(Gravity.CENTER_VERTICAL);
+        libraryTab = text("Library", 14, Color.WHITE);
+        queueTab = text("Up next (0)", 14, MUTED);
+        tabs.addView(libraryTab);
+        tabs.addView(queueTab);
+        root.addView(tabs);
+        libraryTab.setOnClickListener(v -> setTab(false));
+        queueTab.setOnClickListener(v -> setTab(true));
         search = new EditText(this);
         search.setHint("Search songs, artists or song #"); search.setHintTextColor(0xff777e95);
         search.setTextColor(Color.WHITE); search.setSingleLine();
@@ -233,6 +254,10 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         selectedTitle.setText("#" + song.songNumber() + "  " + (song.title.isEmpty() ? "Untitled" : song.title));
         updateControls(); playSelected();
     }
+    private void setTab(boolean toQueue) { showQueue = toQueue; render(search.getText().toString()); }
+    private void queueSong(SongCatalog.Song song) { queue.add(song); setTab(true); }
+    private void playNext() { if (!queue.isEmpty()) selectSong(queue.remove(0)); }
+    private void replayCurrent() { if (selected != null) selectSong(selected); }
 
     private void playSelected() {
         if (selected == null || !foreground || state == PlaybackEngine.State.LOADING || state == PlaybackEngine.State.PLAYING) return;
@@ -313,12 +338,13 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     }
     private void updateControls() {
         if (play == null) return;
-        play.setText(state == PlaybackEngine.State.PAUSED ? "▶  Resume" : "▶  Play");
+        play.setText(state == PlaybackEngine.State.PAUSED ? " Resume" : "  Play");
         play.setEnabled(selected != null && state != PlaybackEngine.State.LOADING && state != PlaybackEngine.State.PLAYING);
         pause.setEnabled(state == PlaybackEngine.State.PLAYING);
         stop.setEnabled(state == PlaybackEngine.State.LOADING || state == PlaybackEngine.State.PLAYING
                 || state == PlaybackEngine.State.PAUSED || state == PlaybackEngine.State.COMPLETED);
     }
+    private void updateTabs() { }
     private void render(String query) {
         if (list == null) return;
         list.removeAllViews(); String needle = query.trim().toLowerCase(Locale.ROOT); int count = 0;
@@ -370,6 +396,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         b.setTextColor(Color.WHITE); b.setOnClickListener(click); return b;
     }
     private LinearLayout.LayoutParams weightedButton() { return new LinearLayout.LayoutParams(0, dp(48), 1); }
+    // Second transport row is built inline in onCreate.
     private static String time(long micros) {
         long seconds = Math.max(0, micros / 1000000L);
         return String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
