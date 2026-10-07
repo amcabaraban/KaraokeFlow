@@ -5,13 +5,27 @@ plugins {
 android {
     namespace 'com.karaokeflow.app'
     compileSdk 35
+    ndkVersion '28.2.13676358'
 
     defaultConfig {
         applicationId 'com.karaokeflow.app'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0-beta'
+        versionCode 2
+        versionName '0.2.0-beta'
+        ndk { abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64' }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
 }
 
@@ -26,4 +40,5 @@ configurations.configureEach {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.documentfile:documentfile:1.0.1'
+    testImplementation 'junit:junit:4.13.2'
 }
