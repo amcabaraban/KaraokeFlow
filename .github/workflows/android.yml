@@ -3,7 +3,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, codex/midi-playback-beta ]
   workflow_dispatch:
 jobs:
   build:
