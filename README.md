@@ -1,6 +1,6 @@
 # KaraokeFlow playback beta
 
-KaraokeFlow is an Android 8.0+ foreground karaoke player. The 0.4.0 beta plays user-supplied Standard MIDI files through a user-selected SF2 SoundFont and highlights synchronized lyrics.
+KaraokeFlow is an Android 8.0+ foreground karaoke player. The 0.4.1 beta plays user-supplied Standard MIDI files through a user-selected SF2 SoundFont and highlights synchronized lyrics.
 
 ## Try the beta
 
@@ -83,3 +83,7 @@ MP3 and MP4 songs play through Android MediaPlayer without requiring an SF2. Con
 The idle stage shows SELECT SONGS and 000000. Each digit updates up to three catalog matches, including the exact zero-padded number if it exists. Prefix lookup uses a sorted number index rather than scanning the full library on each key. Play starts the exact entered number; RES reserves it. Entering six digits no longer reserves automatically. Backspace edits the number. Playback hides the idle label and empty number; MIDI displays its lyrics and concerts display video. Loading and error messages remain visible when needed.
 
 All audio pauses when the app loses foreground or audio focus, or headphones disconnect. Media surfaces reconnect after rotation without restarting the audio session. Physical-device tests for initial permission discovery, decoder compatibility, video rotation, background rendering and the 42,772-file library are still required.
+
+## Reservation stage behavior (0.4.1)
+
+Reserved six-digit song numbers appear at the top of the stage in queue order, separated by dots. The strip scrolls horizontally when it is longer than the screen and stays available with the landscape keypad hidden. Stop and Next consume and start the first reservation. If there is no reservation, Stop stops playback. Internal lifecycle/settings stops never consume the queue. Each newly selected song displays its title above the stage for at least 1.2 seconds and throughout loading; the title disappears when playback starts. Stop/Next during this introduction cancels the pending song before switching. Leaving the app cancels a pending introduction. Rotation preserves the introduction timer. Song number hash markers are replaced with dots.
