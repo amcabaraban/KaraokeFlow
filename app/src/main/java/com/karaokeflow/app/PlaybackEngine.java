@@ -48,6 +48,10 @@ public final class PlaybackEngine implements AutoCloseable {
     // Everything below, including lifecycle changes, is owned by the audio worker.
     private long session;
     private NativeSynth synth;
+    // Retain the decoded bank across songs; the audio worker owns this identity.
+    private File synthFile;
+    private long synthSize = -1;
+    private long synthModified = -1;
     private AudioTrack track;
     private AudioFocusRequest focus;
     private long focusSerial;
@@ -120,7 +124,7 @@ public final class PlaybackEngine implements AutoCloseable {
         state = State.STOPPED;
         worker.post(() -> {
             if (!current(token)) return;
-            cleanup();
+            cleanup(false);
             setState(token, State.STOPPED, "Stopped");
             reportPosition(token, 0);
         });
@@ -131,7 +135,7 @@ public final class PlaybackEngine implements AutoCloseable {
         generation.incrementAndGet();
         pauseRequested = true;
         context.unregisterReceiver(noisy);
-        worker.post(() -> { cleanup(); thread.quitSafely(); });
+        worker.post(() -> { cleanup(true); thread.quitSafely(); });
     }
 
     private boolean current(long token) { return !closed.get() && token == generation.get(); }
@@ -139,13 +143,19 @@ public final class PlaybackEngine implements AutoCloseable {
     private void begin(long token, MidiSequence sequence, File soundFont) {
         // Do not clear a newer session if a queued start has already become stale.
         if (!current(token)) return;
-        cleanup();
+        cleanup(false);
         session = token;
         try {
             if (sequence == null) throw new IllegalArgumentException("Select a MIDI song first.");
             this.sequence = sequence;
-            synth = NativeSynth.load(soundFont, () -> !current(token) || pauseRequested);
-            if (!current(token) || pauseRequested) { cleanup(); return; }
+            if (!sameSoundFont(soundFont)) {
+                closeSynth();
+                synth = NativeSynth.load(soundFont, () -> !current(token) || pauseRequested);
+                rememberSoundFont(soundFont);
+            }
+            if (synth == null) throw new IllegalStateException("SoundFont is not loaded.");
+            synth.reset();
+            if (!current(token) || pauseRequested) { cleanup(false); return; }
             durationFrames = frameAt(sequence.durationMicros);
             if (!sequence.events.isEmpty()) durationFrames = Math.max(durationFrames,
                     frameAt(sequence.events.get(sequence.events.size() - 1).timeMicros));
@@ -159,14 +169,14 @@ public final class PlaybackEngine implements AutoCloseable {
                     .setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(bufferBytes).build();
             if (track.getState() != AudioTrack.STATE_INITIALIZED) throw new IllegalStateException("Audio output did not initialize.");
             if (!requestFocus(token)) throw new IllegalStateException("Audio focus unavailable. Keep KaraokeFlow open and try Play again.");
-            if (!current(token) || pauseRequested) { cleanup(); return; }
+            if (!current(token) || pauseRequested) { cleanup(false); return; }
             track.play();
             lastHeadAdvancedAt = SystemClock.uptimeMillis();
             setState(token, State.PLAYING, "Playing");
             reportPosition(token, 0);
             worker.post(pump);
         } catch (Exception | LinkageError error) {
-            if (!current(token) || pauseRequested) cleanup();
+            if (!current(token) || pauseRequested) cleanup(false);
             else fail(token, error);
         }
     }
@@ -223,7 +233,7 @@ public final class PlaybackEngine implements AutoCloseable {
             // Finish only once the generated release tail has actually left AudioTrack.
             if (generatedComplete && pendingSamples == 0 && head >= writtenFrames) {
                 long end = sequence.durationMicros;
-                cleanup();
+                cleanup(false);
                 setState(token, State.COMPLETED, "Finished");
                 reportPosition(token, end);
                 return;
@@ -298,7 +308,7 @@ public final class PlaybackEngine implements AutoCloseable {
     }
 
     private void fail(long token, Throwable error) {
-        cleanup();
+        cleanup(true);
         if (!current(token)) return;
         String message = error.getMessage();
         if (message == null || message.isEmpty()) message = "Playback failed. Check your MIDI and SoundFont selections.";
@@ -307,7 +317,37 @@ public final class PlaybackEngine implements AutoCloseable {
         main.post(() -> { if (current(token)) listener.onError(detail); });
     }
 
-    private void cleanup() {
+    private boolean sameSoundFont(File file) {
+        return synth != null && synthFile != null && file != null
+                && synthFile.getAbsolutePath().equals(file.getAbsolutePath())
+                && synthSize == file.length() && synthModified == file.lastModified();
+    }
+
+    private void rememberSoundFont(File file) {
+        synthFile = file == null ? null : new File(file.getAbsolutePath());
+        synthSize = file == null ? -1 : file.length();
+        synthModified = file == null ? -1 : file.lastModified();
+    }
+
+    private void closeSynth() {
+        if (synth != null) { synth.close(); synth = null; }
+        synthFile = null;
+        synthSize = synthModified = -1;
+    }
+
+    /** Drops the retained decoded bank after the user refreshes or replaces the source. */
+    public synchronized void invalidateSoundFont() {
+        if (closed.get()) return;
+        long token = generation.incrementAndGet();
+        pauseRequested = true;
+        state = State.STOPPED;
+        worker.post(() -> {
+            cleanup(true);
+            if (current(token)) setState(token, State.STOPPED, "SoundFont cache cleared.");
+        });
+    }
+
+    private void cleanup(boolean closeSynth) {
         worker.removeCallbacks(pump);
         abandonFocus();
         if (track != null) {
@@ -315,7 +355,7 @@ public final class PlaybackEngine implements AutoCloseable {
             catch (RuntimeException ignored) { /* Release is still required after device disconnects. */ }
             finally { track.release(); track = null; }
         }
-        if (synth != null) { synth.close(); synth = null; }
+        if (closeSynth) closeSynth();
         sequence = null;
         pendingOffset = pendingSamples = eventIndex = 0;
         generatedFrames = writtenFrames = durationFrames = releaseAtFrame = 0;
