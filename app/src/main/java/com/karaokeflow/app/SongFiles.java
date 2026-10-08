@@ -58,7 +58,7 @@ public final class SongFiles {
             if (node != null && !node.directory && isMidi(node.name)) {
                 String basename = node.name.substring(0, node.name.lastIndexOf('.'));
                 if (basename.matches("[0-9]{6}") && Integer.parseInt(basename) != song.id) {
-                    throw new IOException("Catalog path for song #" + song.songNumber()
+                    throw new IOException("Catalog path for song · " + song.songNumber()
                             + " points to a different permanent song number: " + node.name + ".");
                 }
                 saveFolderSnapshot();
@@ -68,11 +68,11 @@ public final class SongFiles {
         if (index == null) buildIndex();
         Match match = index.get(song.id);
         if (match == null) {
-            throw new IOException("MIDI for song #" + song.songNumber()
+            throw new IOException("MIDI for song · " + song.songNumber()
                     + " was not found in the selected folder. Check the folder and catalog path.");
         }
         if (match.duplicate != null) {
-            throw new IOException("Song #" + song.songNumber() + " has multiple MIDI files: "
+            throw new IOException("Song · " + song.songNumber() + " has multiple MIDI files: "
                     + match.path + " and " + match.duplicate
                     + ". Choose a narrower folder or use a unique catalog path.");
         }
