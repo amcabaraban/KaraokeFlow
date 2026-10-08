@@ -33,7 +33,6 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private static final int NAVY_BG = 0xff060913;
     private static final int STAGE_TOP = 0xff0e4aa8, STAGE_BOTTOM = 0xff061a3a;
     private static final int CHIP_RED = 0xffd23b2e;
-    private static final int CHIP_ORANGE = 0xffef7d1a;
     private static final int CHIP_GREEN = 0xff2fae4e;
     private static final int KEY_BLUE = 0xff1e4fa8;
     private static final int KEY_DARK = 0xff1c2230;
@@ -54,9 +53,9 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private EditText search;
     private TextView setupStatus, playerStatus, selectedTitle, currentLyric, nextLyric, clock, results, queueLabel;
     private TextView libraryTab, queueTab;
-    private TextView stageTitle, stageSinger, numberDisplay, keyChip, tempoChip, melodyChip, reserveBadge;
+    private TextView stageTitle, stageSinger, numberDisplay, reserveBadge;
     private SeekBar progress;
-    private Button play, pause, stop, next, replay;
+    private Button play, pause, stop, next;
     private SharedPreferences preferences;
     private SongFiles files;
     private PlaybackEngine engine;
@@ -107,13 +106,11 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private LinearLayout buildHome() {
         LinearLayout root = screenRoot();
         LinearLayout top = new LinearLayout(this);
-        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setGravity(Gravity.CENTER);
         top.setPadding(dp(12), dp(10), dp(12), dp(2));
-        top.addView(menuIcon("\u2699"), new LinearLayout.LayoutParams(dp(48), dp(48)));
-        top.addView(menuIcon("?"), new LinearLayout.LayoutParams(dp(48), dp(48)));
         TextView date = text("KaraokeFlow MIDI Karaoke", 12, 0xffc9d4ea);
-        date.setGravity(Gravity.END);
-        top.addView(date, new LinearLayout.LayoutParams(0, -2, 1));
+        date.setGravity(Gravity.CENTER);
+        top.addView(date, new LinearLayout.LayoutParams(-1, -2));
         root.addView(top);
         TextView brand = text("KARAOKEFLOW", 30, Color.WHITE);
         brand.setTypeface(null, 1); brand.setGravity(Gravity.CENTER);
@@ -129,20 +126,14 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         scroll.addView(body, new LinearLayout.LayoutParams(-1, -2));
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         body.addView(menuTile("Enter Karaoke", 0xff9c2b6e, 0xffd34a4a, v -> showScreen(SCREEN_STAGE)));
-        LinearLayout row1 = new LinearLayout(this);
-        row1.addView(menuTile("Song Search", 0xff5b2a86, 0xff8b3fb3,
+        LinearLayout row = new LinearLayout(this);
+        row.addView(menuTile("Songbook", 0xff5b2a86, 0xff8b3fb3,
                 v -> { showQueue = false; showScreen(SCREEN_SEARCH); }), new LinearLayout.LayoutParams(0, -2, 1));
-        row1.addView(menuTile("Artist Search", 0xff1e5fa8, 0xff3f8fd1,
-                v -> { showQueue = false; showScreen(SCREEN_SEARCH); }), new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(menuTile("RSV List", 0xffa33d1c, 0xffd17a2a,
+                v -> { showQueue = true; showScreen(SCREEN_SEARCH); }), new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
         rowParams.setMargins(0, dp(8), 0, 0);
-        body.addView(row1, rowParams);
-        LinearLayout row2 = new LinearLayout(this);
-        row2.addView(menuTile("RSV List", 0xffa33d1c, 0xffd17a2a,
-                v -> { showQueue = true; showScreen(SCREEN_SEARCH); }), new LinearLayout.LayoutParams(0, -2, 1));
-        row2.addView(menuTile("New Songs", 0xff2e7d3a, 0xff5cb85c,
-                v -> { showQueue = false; showScreen(SCREEN_SEARCH); }), new LinearLayout.LayoutParams(0, -2, 1));
-        body.addView(row2, rowParams);
+        body.addView(row, rowParams);
         setupStatus = text("", 11, MUTED);
         setupStatus.setMaxLines(3);
         setupStatus.setGravity(Gravity.CENTER);
@@ -158,16 +149,6 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         body.addView(setup);
         return root;
     }
-    private TextView menuIcon(String glyph) {
-        TextView icon = text(glyph, 20, Color.WHITE);
-        icon.setGravity(Gravity.CENTER);
-        icon.setBackground(background(0xff232c44, 24));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(48));
-        params.setMargins(0, 0, dp(8), 0);
-        icon.setLayoutParams(params);
-        return icon;
-    }
-
     private LinearLayout menuTile(String label, int start, int end, View.OnClickListener click) {
         LinearLayout tile = new LinearLayout(this);
         tile.setOrientation(LinearLayout.VERTICAL);
@@ -241,7 +222,6 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         deck.setOrientation(LinearLayout.VERTICAL);
         deck.setBackgroundColor(0xff05070d);
         deck.setPadding(dp(8), dp(8), dp(8), dp(8));
-        deck.addView(chipRow());
         deck.addView(transportRow());
         deck.addView(keypadGrid());
         LinearLayout bottom = new LinearLayout(this);
@@ -263,28 +243,6 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         return root;
     }
 
-    private TextView chip(String label, int color) {
-        TextView chip = text(label, 11, Color.WHITE);
-        chip.setTypeface(null, 1); chip.setGravity(Gravity.CENTER);
-        chip.setBackground(background(color, 8));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(36), 1);
-        params.setMargins(dp(3), dp(6), dp(3), 0);
-        chip.setLayoutParams(params);
-        return chip;
-    }
-
-    private LinearLayout chipRow() {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        keyChip = chip("-  KEY: 0  +", CHIP_RED);
-        tempoChip = chip("-  TEM: 0  +", CHIP_ORANGE);
-        melodyChip = chip("MEL: 60", CHIP_GREEN);
-        row.addView(keyChip, new LinearLayout.LayoutParams(0, dp(36), 1));
-        row.addView(tempoChip, new LinearLayout.LayoutParams(0, dp(36), 1));
-        row.addView(melodyChip, new LinearLayout.LayoutParams(0, dp(36), 1));
-        return row;
-    }
-
     private Button deckButton(String label, int color, View.OnClickListener click) {
         Button b = button(label, click);
         b.setBackground(background(color, 8));
@@ -295,20 +253,17 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(6), 0, dp(2));
-        play = deckButton("\u25B6", KEY_BLUE, v -> playSelected());
+        Button replayButton = deckButton("Replay", KEY_BLUE, v -> replayCurrent());
         pause = deckButton("\u275A\u275A", KEY_BLUE, v -> engine.pause());
+        play = deckButton("\u25B6", KEY_BLUE, v -> playSelected());
+        next = deckButton("Next", KEY_BLUE, v -> playNext());
         stop = deckButton("\u25A0", KEY_BLUE, v -> stopPlayback());
-        next = deckButton("NX", KEY_BLUE, v -> playNext());
-        replay = deckButton("\u21BB", KEY_BLUE, v -> replayCurrent());
-        Button searchKey = deckButton("Q", KEY_BLUE, v -> showScreen(SCREEN_SEARCH));
-        Button prev = deckButton("|<", KEY_BLUE, v -> replayCurrent());
-        play.setContentDescription("Play or resume the selected song");
+        replayButton.setContentDescription("Replay current song from the beginning");
         pause.setContentDescription("Pause playback");
-        next.setContentDescription("Play next queued song");
-        replay.setContentDescription("Replay current song from beginning");
+        play.setContentDescription("Play or resume the selected song");
+        next.setContentDescription("Play the next reserved song");
         stop.setContentDescription("Stop playback and return to the beginning");
-        row.addView(searchKey, new LinearLayout.LayoutParams(0, dp(48), 1));
-        row.addView(prev, new LinearLayout.LayoutParams(0, dp(48), 1));
+        row.addView(replayButton, new LinearLayout.LayoutParams(0, dp(48), 1));
         row.addView(pause, new LinearLayout.LayoutParams(0, dp(48), 1));
         row.addView(play, new LinearLayout.LayoutParams(0, dp(48), 1));
         row.addView(next, new LinearLayout.LayoutParams(0, dp(48), 1));
@@ -333,19 +288,6 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             }
             grid.addView(row);
         }
-        LinearLayout last = new LinearLayout(this);
-        last.setGravity(Gravity.CENTER_VERTICAL);
-        last.setPadding(0, dp(2), 0, 0);
-        Button rsv = deckButton("RSV List", KEY_PURPLE, v -> { showQueue = true; showScreen(SCREEN_SEARCH); });
-        rsv.setTextSize(11);
-        last.addView(rsv, new LinearLayout.LayoutParams(0, dp(48), 1));
-        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(0, dp(48), 1);
-        gap.setMargins(dp(6), 0, dp(6), 0);
-        last.addView(new Space(this), gap);
-        Button first = deckButton("1st RSV", KEY_BLUE, v -> playNext());
-        first.setTextSize(11);
-        last.addView(first, new LinearLayout.LayoutParams(0, dp(48), 1));
-        grid.addView(last);
         return grid;
     }
 
@@ -386,7 +328,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         }
         if (match != null) {
             queue.add(match);
-            if (playerStatus != null) playerStatus.setText("Reserved #" + number + ". Tap 1st RSV.");
+            if (playerStatus != null) playerStatus.setText("Reserved #" + number + ". Tap Next to play it.");
             updateControls();
             updateReserveBadge();
             refreshEntry();
@@ -435,14 +377,6 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             public void onTextChanged(CharSequence s, int start, int before, int count) { scheduleRender(s.toString()); }
             public void afterTextChanged(Editable editable) { }
         });
-        LinearLayout sources = new LinearLayout(this);
-        sources.setGravity(Gravity.CENTER_VERTICAL);
-        sources.setPadding(dp(12), 0, dp(12), dp(2));
-        sources.addView(setupButton("Catalog", v -> openPicker(CSV)), new LinearLayout.LayoutParams(0, dp(44), 1));
-        sources.addView(setupButton("MIDI folder", v -> openPicker(FOLDER)), new LinearLayout.LayoutParams(0, dp(44), 1));
-        sources.addView(setupButton("SoundFont", v -> openPicker(SF2)), new LinearLayout.LayoutParams(0, dp(44), 1));
-        sources.addView(setupButton("Refresh", v -> refreshSources()), new LinearLayout.LayoutParams(0, dp(44), 1));
-        root.addView(sources);
         queueLabel = text("", 11, MUTED);
         queueLabel.setPadding(dp(12), dp(2), dp(12), 0);
         root.addView(queueLabel);
@@ -581,11 +515,6 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         if (queueTab != null) queueTab.setTextColor(toQueue ? Color.WHITE : MUTED);
         if (search != null) render(search.getText().toString());
     }
-    private void queueSong(SongCatalog.Song song) {
-        queue.add(song);
-        updateReserveBadge();
-        setTab(true);
-    }
     private void playNext() {
         if (queue.isEmpty()) return;
         SongCatalog.Song song = queue.remove(0);
@@ -656,8 +585,11 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         if (destroyed || (newState == PlaybackEngine.State.STOPPED && preparation != null)) return;
         state = newState; playerStatus.setText(message);
         if (state == PlaybackEngine.State.STOPPED) showLyrics(0);
-        if (state == PlaybackEngine.State.PLAYING) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (state == PlaybackEngine.State.PLAYING) {
+            entryDigits.setLength(0);
+            refreshEntry();
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        } else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         updateControls();
     }
     @Override public void onPosition(long micros) { if (!destroyed) showLyrics(micros); }
@@ -761,7 +693,6 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         Button b = new Button(this); b.setText(value); b.setTextSize(11); b.setAllCaps(false);
         b.setTextColor(Color.WHITE); b.setOnClickListener(click); return b;
     }
-    private LinearLayout.LayoutParams weightedButton() { return new LinearLayout.LayoutParams(0, dp(48), 1); }
     // Second transport row is built inline in onCreate.
     private static String time(long micros) {
         long seconds = Math.max(0, micros / 1000000L);
