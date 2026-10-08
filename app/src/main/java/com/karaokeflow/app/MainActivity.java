@@ -41,6 +41,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private static final int DIGIT_YELLOW = 0xffffc21a;
     private static final int SINGER_YELLOW = 0xffffd21f;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final ExecutorService searchWorker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Runnable pendingSearch;
     private int searchGeneration;
@@ -113,6 +114,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
 
     private LinearLayout buildHome() {
         LinearLayout root = screenRoot();
+        root.setBackground(new StageBackdrop());
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER);
         top.setPadding(dp(12), dp(10), dp(12), dp(2));
@@ -123,7 +125,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         TextView brand = text("KARAOKEFLOW", 30, Color.WHITE);
         brand.setTypeface(null, 1); brand.setGravity(Gravity.CENTER);
         root.addView(brand);
-        TextView sub = text("MIDI KARAOKE PLATFORM", 13, 0xff9fb4d8);
+        TextView sub = text("Your stage. Your songs.", 15, 0xff24d3ee);
         sub.setTypeface(null, 1); sub.setGravity(Gravity.CENTER);
         sub.setPadding(0, 0, 0, dp(6));
         root.addView(sub);
@@ -133,8 +135,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         body.setPadding(dp(16), dp(2), dp(16), dp(16));
         scroll.addView(body, new LinearLayout.LayoutParams(-1, -2));
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        body.addView(menuTile("Enter Karaoke", 0xff9c2b6e, 0xffd34a4a, v -> showScreen(SCREEN_STAGE)));
-        LinearLayout songbook = menuTile("Songbook", 0xff5b2a86, 0xff8b3fb3,
+        body.addView(menuTile("Enter Karaoke", 0xff164962, 0xee071624, v -> showScreen(SCREEN_STAGE)));
+        LinearLayout songbook = menuTile("Songbook", 0xff123758, 0xee071624,
                 v -> { showQueue = false; showScreen(SCREEN_SEARCH); });
         LinearLayout.LayoutParams songbookParams = new LinearLayout.LayoutParams(-1, -2);
         songbookParams.setMargins(0, dp(8), 0, 0);
@@ -161,10 +163,11 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         tile.setPadding(dp(12), dp(20), dp(12), dp(20));
         GradientDrawable shape = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{start, end});
         shape.setCornerRadius(dp(18));
+        shape.setStroke(dp(1), 0xff385367);
         tile.setBackground(shape);
         tile.setClickable(true); tile.setFocusable(true);
         tile.setOnClickListener(click);
-        TextView icon = text("\u266A", 44, 0xfff2e8f2);
+        TextView icon = text("\u266A", 44, 0xff24d3ee);
         icon.setGravity(Gravity.CENTER);
         tile.addView(icon);
         TextView name = text(label, 15, Color.WHITE);
@@ -262,7 +265,6 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         body.addView(info, new LinearLayout.LayoutParams(-1, 0, 1));
 
         if (landscape) {
-            body.addView(navigationRow(), new LinearLayout.LayoutParams(-1, dp(52)));
             int availableHeight = getResources().getConfiguration().screenHeightDp;
             panelWidth = dp(Math.min(320, getResources().getConfiguration().screenWidthDp / 2));
 
@@ -280,6 +282,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             landscapePanel.addView(panelTitle, new LinearLayout.LayoutParams(-1, dp(28)));
             landscapePanel.addView(transportRow());
             landscapePanel.addView(keypadGrid());
+            landscapePanel.addView(navigationRow());
             landscapePanel.setVisibility(landscapeKeypadVisible ? View.VISIBLE : View.GONE);
             ScrollView panelScroll = new ScrollView(this);
             panelScroll.setFillViewport(false);
@@ -401,7 +404,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         if (stageSinger == null || selectedTitle == null) return;
         boolean singing = state == PlaybackEngine.State.PLAYING || state == PlaybackEngine.State.PAUSED;
         int visibility = singing ? View.GONE : View.VISIBLE;
-        numberDisplay.setVisibility(entryDigits.length() > 0 || !singing ? View.VISIBLE : View.GONE);
+        numberDisplay.setVisibility(entryDigits.length() > 0 ? View.VISIBLE : View.GONE);
+        stageTitle.setVisibility(visibility);
         stageSinger.setVisibility(visibility);
         selectedTitle.setVisibility(visibility);
     }
@@ -831,14 +835,36 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     }
     private void render(String query) {
         if (list == null || results == null) return;
-        list.removeAllViews(); String needle = query.trim().toLowerCase(Locale.ROOT); int count = 0;
-        List<SongCatalog.Song> source = showQueue ? queue : songs;
+        final int token = ++searchGeneration;
+        if (showQueue) { renderRows(new ArrayList<>(queue), queue.size(), true); return; }
+        final List<SongCatalog.Song> catalog = songs;
+        final String needle = query.trim().toLowerCase(Locale.ROOT);
+        searchWorker.execute(() -> {
+            List<SongCatalog.Song> matches = new ArrayList<>();
+            int total = 0;
+            for (SongCatalog.Song song : catalog) {
+                if (Thread.currentThread().isInterrupted()) return;
+                if (!needle.isEmpty() && !song.title.toLowerCase(Locale.ROOT).contains(needle)
+                        && !song.artist.toLowerCase(Locale.ROOT).contains(needle)
+                        && !song.songNumber().contains(needle)) continue;
+                total++;
+                if (matches.size() < 100) matches.add(song);
+            }
+            final int matchCount = total;
+            ui.post(() -> {
+                if (!destroyed && token == searchGeneration && !showQueue)
+                    renderRows(matches, matchCount, false);
+            });
+        });
+    }
+
+    private void renderRows(List<SongCatalog.Song> source, int total, boolean queueRows) {
+        list.removeAllViews();
+        int count = 0;
         for (int sourceIndex = 0; sourceIndex < source.size(); sourceIndex++) {
             SongCatalog.Song song = source.get(sourceIndex);
             final int rowIndex = sourceIndex;
-            if (!showQueue && !needle.isEmpty() && !song.title.toLowerCase(Locale.ROOT).contains(needle)
-                    && !song.artist.toLowerCase(Locale.ROOT).contains(needle) && !song.songNumber().contains(needle)) continue;
-            if (++count > 100) continue;
+            if (++count > 100) break;
             LinearLayout card = new LinearLayout(this); card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(dp(14), dp(7), dp(14), dp(7)); card.setBackground(background(0xff141824, 14));
             TextView title = text(song.title.isEmpty() ? "Untitled" : song.title, 17, Color.WHITE);
@@ -846,7 +872,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             card.addView(text("#" + song.songNumber() + "  •  " + (song.artist.isEmpty() ? "Unknown artist" : song.artist), 13, MUTED));
             card.setClickable(true); card.setFocusable(true);
             card.setContentDescription("Play " + song.title + ", song " + song.songNumber());
-            card.setOnClickListener(v -> selectSong(song));
+            card.setOnClickListener(v -> { if (queueRows) playReservedAt(rowIndex); else selectSong(song); });
             Button reserve = button(showQueue ? "Play now" : "RSV", v -> {
                 if (showQueue) playReservedAt(rowIndex);
                 else { queue.add(song); updateReserveBadge(); updateTabs(); playerStatus.setText("Reserved #" + song.songNumber() + "."); }
@@ -857,7 +883,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             params.setMargins(0, 0, 0, dp(8)); list.addView(card, params);
         }
         if (showQueue) results.setText(queue.size() + " reserved");
-        else results.setText(count > 100 ? "First 100 of " + count + " matches. Search to narrow the list." : count + " matching songs");
+        else results.setText(total > 100 ? "First 100 of " + total + " matches. Search to narrow the list." : total + " matching songs");
         if (showQueue && queue.isEmpty()) list.addView(text("No reservations yet. Type a number on the keypad.", 14, MUTED));
         else if (songs.isEmpty()) list.addView(text("Import your catalog to begin.", 14, MUTED));
         else if (count == 0) list.addView(text("No matching songs.", 14, MUTED));
@@ -870,7 +896,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         engine.pause(); super.onPause();
     }
     @Override protected void onDestroy() {
-        destroyed = true; catalogRequest++; searchGeneration++; if (pendingSearch != null) ui.removeCallbacks(pendingSearch); cancelPreparation(); engine.close(); io.shutdownNow(); super.onDestroy();
+        destroyed = true; catalogRequest++; searchGeneration++; if (pendingSearch != null) ui.removeCallbacks(pendingSearch); cancelPreparation(); engine.close(); io.shutdownNow(); searchWorker.shutdownNow(); super.onDestroy();
     }
     private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + .5f); }
     private GradientDrawable background(int color, int radius) {
