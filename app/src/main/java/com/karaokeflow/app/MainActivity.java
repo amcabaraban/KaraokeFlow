@@ -2,6 +2,7 @@ package com.karaokeflow.app;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -48,7 +49,10 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private boolean showQueue;
     private int screen = SCREEN_HOME;
     private final StringBuilder entryDigits = new StringBuilder();
-    private LinearLayout homeRoot, stageRoot, searchRoot;
+    private LinearLayout homeRoot, searchRoot;
+    private FrameLayout stageRoot, shell;
+    private LinearLayout landscapePanel;
+    private Button keypadToggle;
     private LinearLayout list;
     private EditText search;
     private TextView setupStatus, playerStatus, selectedTitle, currentLyric, nextLyric, clock, results, queueLabel;
@@ -67,24 +71,15 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private Future<?> preparation;
     private int request, catalogRequest;
     private boolean destroyed, foreground;
+    private boolean landscapeKeypadVisible = true;
+    private long lastPositionMicros;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getPreferences(MODE_PRIVATE);
         files = new SongFiles(this);
         engine = new PlaybackEngine(this, this);
-        FrameLayout shell = new FrameLayout(this);
-        shell.setBackgroundColor(NAVY_BG);
-        setContentView(shell);
-        homeRoot = buildHome();
-        stageRoot = buildStage();
-        searchRoot = buildSearch();
-        shell.addView(homeRoot, new FrameLayout.LayoutParams(-1, -1));
-        shell.addView(stageRoot, new FrameLayout.LayoutParams(-1, -1));
-        shell.addView(searchRoot, new FrameLayout.LayoutParams(-1, -1));
-        showScreen(SCREEN_HOME);
-        updateSetup(); updateControls(); render("");
-        refreshEntry();
+        buildUi();
         String catalog = preferences.getString("catalog", null);
         if (catalog != null) importCatalog(Uri.parse(catalog));
     }
@@ -175,58 +170,130 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         return b;
     }
 
-    private LinearLayout buildStage() {
-        LinearLayout root = screenRoot();
-        LinearLayout stage = new LinearLayout(this);
-        stage.setOrientation(LinearLayout.VERTICAL);
-        stage.setGravity(Gravity.CENTER_HORIZONTAL);
-        stage.setPadding(dp(16), dp(16), dp(16), dp(12));
-        stage.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{STAGE_TOP, STAGE_BOTTOM}));
-        stageTitle = text("Select a Song", 24, Color.WHITE);
-        stageTitle.setTypeface(null, 1); stageTitle.setGravity(Gravity.CENTER);
+    private FrameLayout buildStage() {
+        boolean landscape = isLandscape();
+        FrameLayout root = new FrameLayout(this);
+        root.setBackground(stageBackground());
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(insets.getSystemWindowInsetLeft(),
+                    insets.getSystemWindowInsetTop(),
+                    insets.getSystemWindowInsetRight(),
+                    insets.getSystemWindowInsetBottom());
+            return insets;
+        });
+
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        int horizontal = landscape ? 24 : 16;
+        body.setPadding(dp(horizontal), dp(landscape ? 12 : 16),
+                dp(horizontal), dp(landscape ? 10 : 12));
+        root.addView(body, new FrameLayout.LayoutParams(-1, -1));
+
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setGravity(Gravity.CENTER);
+        stageTitle = text("Select a Song", landscape ? 30 : 24, Color.WHITE);
+        stageTitle.setTypeface(null, 1);
+        stageTitle.setGravity(Gravity.CENTER);
         stageTitle.setShadowLayer(dp(3), 0, 2, 0xff000000);
-        stage.addView(stageTitle);
-        numberDisplay = text("000000", 40, DIGIT_YELLOW);
-        numberDisplay.setTypeface(null, 1); numberDisplay.setGravity(Gravity.CENTER);
+        info.addView(stageTitle);
+
+        numberDisplay = text("000000", landscape ? 58 : 40, DIGIT_YELLOW);
+        numberDisplay.setTypeface(null, 1);
+        numberDisplay.setGravity(Gravity.CENTER);
         numberDisplay.setShadowLayer(dp(4), 0, 2, 0xff000000);
-        stage.addView(numberDisplay);
-        stageSinger = text("Singer: -", 14, SINGER_YELLOW);
-        stageSinger.setTypeface(null, 1); stageSinger.setGravity(Gravity.CENTER);
-        stage.addView(stageSinger);
-        selectedTitle = text("Choose a song to begin", 13, 0xffdbe6ff);
-        selectedTitle.setGravity(Gravity.CENTER); selectedTitle.setMaxLines(1);
-        stage.addView(selectedTitle);
-        currentLyric = text("Your lyrics will appear here", 20, Color.WHITE);
-        currentLyric.setGravity(Gravity.CENTER); currentLyric.setMinLines(1); currentLyric.setMaxLines(2);
+        info.addView(numberDisplay);
+
+        stageSinger = text("Singer: -", landscape ? 16 : 14, SINGER_YELLOW);
+        stageSinger.setTypeface(null, 1);
+        stageSinger.setGravity(Gravity.CENTER);
+        info.addView(stageSinger);
+
+        selectedTitle = text("Choose a song to begin", landscape ? 15 : 13, 0xffdbe6ff);
+        selectedTitle.setGravity(Gravity.CENTER);
+        selectedTitle.setMaxLines(1);
+        info.addView(selectedTitle);
+
+        currentLyric = text("Your lyrics will appear here", landscape ? 28 : 20, Color.WHITE);
+        currentLyric.setGravity(Gravity.CENTER);
+        currentLyric.setMinLines(1);
+        currentLyric.setMaxLines(2);
         currentLyric.setTypeface(null, 1);
         currentLyric.setShadowLayer(dp(3), 0, 2, 0xff000000);
-        stage.addView(currentLyric);
-        nextLyric = text("", 13, 0xffbcd0f5); nextLyric.setGravity(Gravity.CENTER);
-        nextLyric.setMaxLines(1); stage.addView(nextLyric);
-        progress = new SeekBar(this); progress.setMax(1000); progress.setProgress(0);
+        info.addView(currentLyric);
+
+        nextLyric = text("", landscape ? 16 : 13, 0xffbcd0f5);
+        nextLyric.setGravity(Gravity.CENTER);
+        nextLyric.setMaxLines(1);
+        info.addView(nextLyric);
+
+        progress = new SeekBar(this);
+        progress.setMax(1000);
+        progress.setProgress(0);
         progress.setEnabled(false);
-        stage.addView(progress, new LinearLayout.LayoutParams(-1, dp(22)));
+        info.addView(progress, new LinearLayout.LayoutParams(-1, dp(22)));
+
         LinearLayout timeRow = new LinearLayout(this);
         timeRow.setGravity(Gravity.CENTER_VERTICAL);
-        clock = text("0:00 / 0:00", 11, 0xffdbe6ff); clock.setGravity(Gravity.START);
+        clock = text("0:00 / 0:00", 11, 0xffdbe6ff);
+        clock.setGravity(Gravity.START);
         timeRow.addView(clock, new LinearLayout.LayoutParams(0, -2, 1));
-        playerStatus = text("Ready when you are", 11, 0xffdbe6ff); playerStatus.setGravity(Gravity.END);
+        playerStatus = text("Ready when you are", 11, 0xffdbe6ff);
+        playerStatus.setGravity(Gravity.END);
         timeRow.addView(playerStatus, new LinearLayout.LayoutParams(0, -2, 2));
-        stage.addView(timeRow);
-        root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1.35f));
-        LinearLayout deck = new LinearLayout(this);
-        deck.setOrientation(LinearLayout.VERTICAL);
-        deck.setBackgroundColor(0xff05070d);
-        deck.setPadding(dp(8), dp(8), dp(8), dp(8));
-        deck.addView(transportRow());
-        deck.addView(keypadGrid());
+        info.addView(timeRow);
+
+        body.addView(info, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        if (landscape) {
+            body.addView(navigationRow(), new LinearLayout.LayoutParams(-1, dp(52)));
+
+            landscapePanel = new LinearLayout(this);
+            landscapePanel.setOrientation(LinearLayout.VERTICAL);
+            landscapePanel.setPadding(dp(8), dp(8), dp(8), dp(8));
+            GradientDrawable panelShape = new GradientDrawable();
+            panelShape.setColor(0xee071224);
+            panelShape.setCornerRadius(dp(18));
+            landscapePanel.setBackground(panelShape);
+            landscapePanel.setElevation(dp(10));
+            TextView panelTitle = text("Controls", 13, 0xffdbe6ff);
+            panelTitle.setTypeface(null, 1);
+            panelTitle.setGravity(Gravity.CENTER);
+            landscapePanel.addView(panelTitle, new LinearLayout.LayoutParams(-1, dp(28)));
+            landscapePanel.addView(transportRow());
+            landscapePanel.addView(keypadGrid());
+            landscapePanel.setVisibility(landscapeKeypadVisible ? View.VISIBLE : View.GONE);
+            FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(dp(340), -2);
+            panelParams.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
+            panelParams.setMargins(0, dp(10), dp(12), dp(10));
+            root.addView(landscapePanel, panelParams);
+
+            keypadToggle = deckButton(landscapeKeypadVisible ? "×" : "⌨", KEY_BLUE,
+                    v -> toggleLandscapeKeypad());
+            keypadToggle.setTextSize(18);
+            keypadToggle.setContentDescription(landscapeKeypadVisible
+                    ? "Hide floating keypad" : "Show floating keypad");
+            FrameLayout.LayoutParams toggleParams = new FrameLayout.LayoutParams(dp(52), dp(48));
+            toggleParams.gravity = Gravity.END | Gravity.TOP;
+            toggleParams.setMargins(0, dp(10), dp(12), 0);
+            root.addView(keypadToggle, toggleParams);
+        } else {
+            landscapePanel = null;
+            keypadToggle = null;
+            body.addView(transportRow());
+            body.addView(keypadGrid());
+            body.addView(navigationRow());
+        }
+        return root;
+    }
+
+    private LinearLayout navigationRow() {
         LinearLayout bottom = new LinearLayout(this);
         bottom.setGravity(Gravity.CENTER_VERTICAL);
         bottom.setPadding(0, dp(6), 0, 0);
         bottom.addView(deckButton("Home", KEY_BLUE, v -> showScreen(SCREEN_HOME)),
                 new LinearLayout.LayoutParams(0, dp(48), 1));
-        reserveBadge = text("RSV: 0", 12, Color.WHITE);
+        reserveBadge = text("RSV: " + queue.size(), 12, Color.WHITE);
         reserveBadge.setGravity(Gravity.CENTER);
         reserveBadge.setBackground(background(KEY_PURPLE, 8));
         reserveBadge.setOnClickListener(v -> { showQueue = true; showScreen(SCREEN_SEARCH); });
@@ -235,9 +302,72 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         bottom.addView(reserveBadge, badgeParams);
         bottom.addView(deckButton("Search", KEY_BLUE, v -> showScreen(SCREEN_SEARCH)),
                 new LinearLayout.LayoutParams(0, dp(48), 1));
-        deck.addView(bottom);
-        root.addView(deck, new LinearLayout.LayoutParams(-1, -2));
-        return root;
+        return bottom;
+    }
+
+    private boolean isLandscape() {
+        return getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    private GradientDrawable stageBackground() {
+        int[] colors = isLandscape()
+                ? new int[]{0xff274d73, 0xff081323}
+                : new int[]{STAGE_TOP, STAGE_BOTTOM};
+        return new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, colors);
+    }
+
+    private void toggleLandscapeKeypad() {
+        if (landscapePanel == null || keypadToggle == null) return;
+        landscapeKeypadVisible = !landscapeKeypadVisible;
+        landscapePanel.setVisibility(landscapeKeypadVisible ? View.VISIBLE : View.GONE);
+        keypadToggle.setText(landscapeKeypadVisible ? "×" : "⌨");
+        keypadToggle.setContentDescription(landscapeKeypadVisible
+                ? "Hide floating keypad" : "Show floating keypad");
+    }
+
+    private void buildUi() {
+        shell = new FrameLayout(this);
+        shell.setBackgroundColor(NAVY_BG);
+        setContentView(shell);
+        homeRoot = buildHome();
+        stageRoot = buildStage();
+        searchRoot = buildSearch();
+        shell.addView(homeRoot, new FrameLayout.LayoutParams(-1, -1));
+        shell.addView(stageRoot, new FrameLayout.LayoutParams(-1, -1));
+        shell.addView(searchRoot, new FrameLayout.LayoutParams(-1, -1));
+        showScreen(screen);
+        updateSetup();
+        updateControls();
+        refreshEntry();
+        restoreStageState();
+    }
+
+    private void restoreStageState() {
+        if (stageTitle == null) return;
+        if (selected != null) {
+            String name = selected.title.isEmpty() ? "Untitled" : selected.title;
+            stageTitle.setText(name);
+            stageSinger.setText("Singer: " + (selected.artist.isEmpty() ? "Unknown artist" : selected.artist));
+            selectedTitle.setText("#" + selected.songNumber() + "  " + name);
+        }
+        updateStageMeta();
+        if (prepared != null) {
+            if (timeline == null) timeline = new LyricTimeline(prepared);
+            showLyrics(lastPositionMicros);
+        } else {
+            timeline = null;
+            showLyrics(0);
+        }
+        if (state == PlaybackEngine.State.PLAYING && numberDisplay != null) {
+            numberDisplay.setText("");
+        }
+    }
+
+    private void updateStageMeta() {
+        if (stageSinger == null || selectedTitle == null) return;
+        int visibility = state == PlaybackEngine.State.PLAYING ? View.GONE : View.VISIBLE;
+        stageSinger.setVisibility(visibility);
+        selectedTitle.setVisibility(visibility);
     }
 
     private Button deckButton(String label, int color, View.OnClickListener click) {
