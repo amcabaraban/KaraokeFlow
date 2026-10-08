@@ -10,6 +10,7 @@ import androidx.documentfile.provider.DocumentFile;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
@@ -93,6 +94,12 @@ public final class SongFiles {
             throw new IOException("The SoundFont cache folder could not be created.");
         }
         File destination = new File(directory, uriKey(uri) + ".sf2");
+        // Reuse a complete cached bank across Activity restarts. Refresh files explicitly
+        // invalidates this path before the next copy.
+        if (isValidCachedSoundFont(destination)) return destination;
+        if (destination.exists() && !destination.delete()) {
+            throw new IOException("The stale SoundFont cache could not be replaced.");
+        }
         File temporary = File.createTempFile("soundfont-", ".partial", directory);
         boolean complete = false;
         try {
@@ -142,6 +149,24 @@ public final class SongFiles {
         }
     }
 
+    private static boolean isValidCachedSoundFont(File file) {
+        if (file == null || !file.isFile() || file.length() < 12 || file.length() > MAX_SF2_BYTES) return false;
+        try (FileInputStream input = new FileInputStream(file)) {
+            byte[] header = new byte[12];
+            int offset = 0;
+            while (offset < header.length) {
+                int read = input.read(header, offset, header.length - offset);
+                if (read < 0) return false;
+                if (read == 0) continue;
+                offset += read;
+            }
+            validateHeader(header);
+            return file.length() == unsignedInt(header, 4) + 8;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private static void validateHeader(byte[] header) throws IOException {
         if (header[0] != 'R' || header[1] != 'I' || header[2] != 'F' || header[3] != 'F'
                 || header[8] != 's' || header[9] != 'f' || header[10] != 'b' || header[11] != 'k') {
@@ -154,6 +179,25 @@ public final class SongFiles {
     private static long unsignedInt(byte[] data, int offset) {
         return (data[offset] & 255L) | ((data[offset + 1] & 255L) << 8)
                 | ((data[offset + 2] & 255L) << 16) | ((data[offset + 3] & 255L) << 24);
+    }
+
+    /** Drops provider directory metadata so the next lookup sees newly added files. */
+    public synchronized void clearFolderCache() {
+        selectedTree = null;
+        tree = null;
+        root = null;
+        index = null;
+        directories.clear();
+    }
+
+    /** Explicitly invalidate a selected provider SoundFont after it was replaced in place. */
+    public void invalidateSoundFont(Uri uri) throws IOException {
+        if (uri == null) return;
+        File directory = new File(context.getCacheDir(), "soundfonts");
+        File destination = new File(directory, uriKey(uri) + ".sf2");
+        if (destination.exists() && !destination.delete()) {
+            throw new IOException("The SoundFont cache could not be cleared.");
+        }
     }
 
     private static String uriKey(Uri uri) throws IOException {
