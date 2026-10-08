@@ -695,7 +695,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
                 final LibrarySetup.Entry midiFolder = midi;
                 ui.post(() -> {
                     if (destroyed || token != setupRequest) return;
-                    stopPlayback(); prepared = null; selectedFont = null; engine.invalidateSoundFont();
+                    stopPlayback(); selected = null; queue.clear(); updateReserveBadge();
+                    prepared = null; selectedFont = null; engine.invalidateSoundFont();
                     catalogRequest++;
                     midiSongs = new ArrayList<>(); mergeLibrary();
                     preferences.edit().remove("catalog").remove("catalogName").remove("midi").remove("midiName")
@@ -766,6 +767,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             }
         }
         songs = merged;
+        numberLookup = new SongNumberLookup(Collections.emptyList());
         final int token = ++lookupRequest;
         searchWorker.execute(() -> {
             SongNumberLookup lookup = new SongNumberLookup(merged);
@@ -910,6 +912,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private void refreshSources() {
         stopPlayback();
         reloadMedia(true);
+        String catalogUri = preferences.getString("catalog", null);
+        if (catalogUri != null) importCatalog(Uri.parse(catalogUri));
         engine.invalidateSoundFont();
         prepared = null;
         timeline = null;
