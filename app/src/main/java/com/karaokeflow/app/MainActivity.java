@@ -635,7 +635,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         libraryTab.setOnClickListener(v -> setTab(false));
         queueTab.setOnClickListener(v -> setTab(true));
         search = new EditText(this);
-        search.setHint("Search songs, artists or song · "); search.setHintTextColor(0xff777e95);
+        search.setHint("Search songs, artists or song number"); search.setHintTextColor(0xff777e95);
         search.setTextColor(Color.WHITE); search.setSingleLine();
         search.setBackground(background(0xff181c2a, 16)); search.setPadding(dp(16), 0, dp(16), 0);
         LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, dp(50));
@@ -983,6 +983,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private void selectSong(SongCatalog.Song song) {
         showScreen(SCREEN_STAGE);
         stopPlayback(); selected = song; prepared = null; timeline = null;
+        entryDigits.setLength(0); refreshEntry();
         String name = song.title.isEmpty() ? "Untitled" : song.title;
         selectedTitle.setText("· " + song.songNumber() + "  " + name);
         stageTitle.setText(name);
