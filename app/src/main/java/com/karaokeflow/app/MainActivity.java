@@ -50,7 +50,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private int searchGeneration;
     private List<SongCatalog.Song> songs = new ArrayList<>();
     private List<SongCatalog.Song> midiSongs = new ArrayList<>(), mp3Songs = new ArrayList<>(), videoSongs = new ArrayList<>();
-    private int mediaRequest, setupRequest;
+    private int mediaRequest, setupRequest, lookupRequest;
+    private SongNumberLookup numberLookup = new SongNumberLookup(Collections.emptyList());
     private boolean mediaActive;
     private MediaPlayback media, backdropVideo;
     private TextureView songVideoView, backgroundVideoView;
@@ -422,7 +423,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             showLyrics(0);
         }
         if (state == PlaybackEngine.State.PLAYING && numberDisplay != null) {
-            numberDisplay.setText("");
+            numberDisplay.setText("000000");
         }
     }
 
@@ -534,24 +535,13 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     }
 
     private List<SongCatalog.Song> entryMatches() {
-        List<SongCatalog.Song> matches = new ArrayList<>();
-        if (entryDigits.length() == 0) return matches;
-        String digits = entryDigits.toString();
-        String exact = String.format(Locale.ROOT, "%6s", digits).replace(' ', '0');
-        for (SongCatalog.Song song : songs) if (song.songNumber().equals(exact)) {
-            matches.add(song); break;
-        }
-        for (SongCatalog.Song song : songs) {
-            if (matches.size() >= 3) break;
-            if (song.songNumber().startsWith(digits) && !matches.contains(song)) matches.add(song);
-        }
-        return matches;
+        return numberLookup.preview(entryDigits.toString());
     }
 
     private void playEntryOrSelected() {
         if (entryDigits.length() > 0) {
-            int id = Integer.parseInt(entryDigits.toString());
-            for (SongCatalog.Song song : songs) if (song.id == id) {
+            SongCatalog.Song song = numberLookup.exact(entryDigits.toString());
+            if (song != null) {
                 entryDigits.setLength(0); refreshEntry(); selectSong(song); return;
             }
             Toast.makeText(this, "No song with this number", Toast.LENGTH_SHORT).show();
@@ -570,10 +560,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         while (entryDigits.length() < 6) entryDigits.insert(0, "0");
         String number = entryDigits.toString();
         entryDigits.setLength(0);
-        SongCatalog.Song match = null;
-        for (SongCatalog.Song song : songs) {
-            if (song.songNumber().equals(number)) { match = song; break; }
-        }
+        SongCatalog.Song match = numberLookup.exact(number);
         if (match != null) {
             queue.add(match);
             if (playerStatus != null) playerStatus.setText("Reserved #" + number + ". Tap Next to play it.");
@@ -581,7 +568,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             updateReserveBadge();
             refreshEntry();
         } else if (playerStatus != null) {
-            playerStatus.setText("No song #" + number + ". Search the Songbook.");
+            Toast.makeText(this, "No song #" + number + ". Search the Songbook.", Toast.LENGTH_SHORT).show();
             refreshEntry();
         }
     }
@@ -709,6 +696,10 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
                 ui.post(() -> {
                     if (destroyed || token != setupRequest) return;
                     stopPlayback(); prepared = null; selectedFont = null; engine.invalidateSoundFont();
+                    catalogRequest++;
+                    midiSongs = new ArrayList<>(); mergeLibrary();
+                    preferences.edit().remove("catalog").remove("catalogName").remove("midi").remove("midiName")
+                            .remove("sf2").remove("sf2Name").apply();
                     if (midiFolder != null) {
                         files = new SongFiles(this);
                         preferences.edit().putString("midi", LibrarySetup.subtree(root, midiFolder).toString())
@@ -775,6 +766,14 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             }
         }
         songs = merged;
+        final int token = ++lookupRequest;
+        searchWorker.execute(() -> {
+            SongNumberLookup lookup = new SongNumberLookup(merged);
+            ui.post(() -> {
+                if (destroyed || token != lookupRequest) return;
+                numberLookup = lookup; refreshEntry();
+            });
+        });
         if (conflicts > 0) notice(conflicts + " media number conflicts. Rename MP3/concert files with unused numbers.");
     }
 
@@ -1035,6 +1034,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         state = PlaybackEngine.State.STOPPED;
         lastPositionMicros = 0;
         showLyrics(0);
+        refreshEntry();
         updateStageMeta();
         playerMessage = "Stopped. Press Play to start from the beginning.";
         playerStatus.setText(playerMessage); updateControls();
