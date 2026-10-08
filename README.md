@@ -1,13 +1,13 @@
 # KaraokeFlow playback beta
 
-KaraokeFlow is an Android 8.0+ foreground karaoke player. The 0.3.3 beta plays user-supplied Standard MIDI files through a user-selected SF2 SoundFont and highlights synchronized lyrics.
+KaraokeFlow is an Android 8.0+ foreground karaoke player. The 0.4.0 beta plays user-supplied Standard MIDI files through a user-selected SF2 SoundFont and highlights synchronized lyrics.
 
 ## Try the beta
 
 1. Install `app-debug.apk` from the **KaraokeFlow-Beta-APK** artifact on a successful GitHub Actions run.
 2. Tap **MIDI folder** and grant access to your `SongHub_Extracted` folder (or another folder containing your own `.mid`, `.midi`, or `.kar` files).
 3. Tap **SoundFont** and select a real `.sf2` file. This beta accepts files up to 256 MiB and caches a validated copy privately. The cache is keyed by the selected document URI and can be reused after an app restart. Use Refresh files after replacing the provider file in place. SF3 is unsupported. No font is bundled.
-4. Tap **Import CSV** and select `mkmd_catalog_probe.csv` or a compatible UTF-8 catalog.
+4. Open **Settings → Catalog CSV** and select `mkmd_catalog_probe.csv` or a compatible UTF-8 catalog.
 5. Search by title, artist, or permanent six-digit song number, such as `012185`, and tap a song to play.
 6. Use **Pause**, **Resume**, and **Stop**. Stop resets to the beginning; Play replays the song. The current lyric line highlights each timed fragment, with the next line below it.
 7. Rotate to landscape for the floating control panel. Tap the keypad toggle to show or hide it; the selected song, queue, search, and lyric position survive rotation.
@@ -71,3 +71,15 @@ MIDI directory metadata and the complete numeric lookup index are now saved in p
 Home uses the original aurora scene and navy/cyan theme. Song title, singer and duplicate details are hidden while playing or paused. In landscape, Home, Queue and Songbook are inside the toggled keypad panel, leaving the stage clear when controls are hidden.
 
 Performance with a 42,772-file provider folder and physical-device layout testing still require device verification; no loading-time claim is made.
+
+## Settings, automatic setup and media (0.4.0)
+
+Open Settings from Home or the stage control deck. Choose the folder `/storage/emulated/0/KaraokeFlow` once in Android's folder picker. The app finds CSV and SF2 files directly inside that granted folder and the `SongHub_Extracted` child folder. If several CSV or SF2 files exist, it asks which to use. Selections are remembered; no all-files storage permission is required. Android still requires the initial folder grant. Settings also lets you override the catalog, MIDI folder and SoundFont separately.
+
+Choose an MP3 songs folder, an MP4 concerts folder, and an MP4 backgrounds folder independently. Song and concert files use unique six-digit numbers, for example `050001 My Song.mp3` and `060001 Live Concert.mp4`. Subfolders are included. Unnumbered media is excluded; titles come from the filenames. Numbers already used by MIDI or another source are excluded with a conflict notice. Use unused numbers for media; existing catalog numbers are never reassigned. Media folder indexes are cached across restarts; Refresh rescans them after changes.
+
+MP3 and MP4 songs play through Android MediaPlayer without requiring an SF2. Concert video keeps its aspect ratio. Choose an MP4 lyric background in Settings; it loops silently behind MIDI lyrics, while MIDI supplies the audio. Backgrounds are selected from MP4 files directly inside the chosen backgrounds folder. Choose "Use illustrated background" to return to the aurora artwork. MP3 has no synthesized or external synchronized lyrics in this beta, and concert lyrics must be embedded in the video. Codec support depends on the Android device.
+
+The idle stage shows SELECT SONGS and 000000. Each digit updates up to three catalog matches, including the exact zero-padded number if it exists. Prefix lookup uses a sorted number index rather than scanning the full library on each key. Play starts the exact entered number; RES reserves it. Entering six digits no longer reserves automatically. Backspace edits the number. Playback hides the idle label and empty number; MIDI displays its lyrics and concerts display video. Loading and error messages remain visible when needed.
+
+All audio pauses when the app loses foreground or audio focus, or headphones disconnect. Media surfaces reconnect after rotation without restarting the audio session. Physical-device tests for initial permission discovery, decoder compatibility, video rotation, background rendering and the 42,772-file library are still required.
