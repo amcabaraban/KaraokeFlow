@@ -231,7 +231,8 @@ public final class SongFiles {
         index = null;
         directories.clear();
         try {
-            DocumentFile document = DocumentFile.fromTreeUri(context, uri);
+            DocumentFile document = DocumentsContract.isDocumentUri(context, uri)
+                    ? DocumentFile.fromSingleUri(context, uri) : DocumentFile.fromTreeUri(context, uri);
             if (document == null || !document.isDirectory()) {
                 throw new IOException("The selected MIDI folder is unavailable. Select it again.");
             }
