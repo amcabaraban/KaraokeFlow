@@ -11,8 +11,8 @@ android {
         applicationId 'com.karaokeflow.app'
         minSdk 26
         targetSdk 35
-        versionCode 10
-        versionName '0.4.0-beta'
+        versionCode 11
+        versionName '0.4.1-beta'
         ndk { abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64' }
     }
 
