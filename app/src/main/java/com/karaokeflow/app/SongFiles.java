@@ -9,6 +9,10 @@ import android.provider.DocumentsContract;
 import androidx.documentfile.provider.DocumentFile;
 
 import java.io.File;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.FileOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -38,6 +42,7 @@ public final class SongFiles {
     private Node root;
     private final Map<String, List<Node>> directories = new HashMap<>();
     private Map<Integer, Match> index;
+    private boolean metadataDirty;
 
     public SongFiles(Context context) {
         this.context = context.getApplicationContext();
@@ -56,6 +61,7 @@ public final class SongFiles {
                     throw new IOException("Catalog path for song #" + song.songNumber()
                             + " points to a different permanent song number: " + node.name + ".");
                 }
+                saveFolderSnapshot();
                 return node.uri;
             }
         }
@@ -183,6 +189,10 @@ public final class SongFiles {
 
     /** Drops provider directory metadata so the next lookup sees newly added files. */
     public synchronized void clearFolderCache() {
+        if (tree != null) {
+            try { new File(context.getCacheDir(), "midi-" + uriKey(tree) + ".index").delete(); }
+            catch (IOException ignored) { }
+        }
         selectedTree = null;
         tree = null;
         root = null;
@@ -229,6 +239,7 @@ public final class SongFiles {
             root = new Node(document.getUri(), DocumentsContract.getDocumentId(document.getUri()),
                     document.getName() == null ? "" : document.getName(), true);
             selectedTree = uri.toString();
+            loadFolderSnapshot();
         } catch (SecurityException | IllegalArgumentException e) {
             throw new IOException("MIDI folder access was lost. Select the folder again.", e);
         }
@@ -308,6 +319,7 @@ public final class SongFiles {
             throw new IOException("MIDI folder access was lost. Select the folder again.", e);
         }
         directories.put(directory.id, result);
+        metadataDirty = true;
         return result;
     }
 
@@ -338,6 +350,98 @@ public final class SongFiles {
         }
         // An interrupted/failed traversal never leaves a partially valid index behind.
         index = newIndex;
+        metadataDirty = true;
+        saveFolderSnapshot();
+    }
+
+    // Store document metadata only: never open or parse the whole MIDI library.
+    // Refresh files explicitly discards this snapshot after additions or moves.
+    private void loadFolderSnapshot() {
+        metadataDirty = false;
+        try (DataInputStream input = new DataInputStream(new BufferedInputStream(
+                new FileInputStream(new File(context.getCacheDir(), "midi-" + uriKey(tree) + ".index"))))) {
+            if (input.readInt() != 1 || !input.readUTF().equals(selectedTree)) return;
+            Map<String, List<Node>> restored = new HashMap<>();
+            int count = snapshotCount(input);
+            for (int i = 0; i < count; i++) {
+                String parent = input.readUTF();
+                int size = snapshotCount(input);
+                List<Node> nodes = new ArrayList<>(size);
+                for (int j = 0; j < size; j++) {
+                    String id = input.readUTF(), name = input.readUTF();
+                    nodes.add(new Node(DocumentsContract.buildDocumentUriUsingTree(tree, id),
+                            id, name, input.readBoolean()));
+                }
+                restored.put(parent, nodes);
+            }
+            Map<Integer, Match> restoredIndex = null;
+            if (input.readBoolean()) {
+                restoredIndex = new HashMap<>();
+                int size = snapshotCount(input);
+                for (int i = 0; i < size; i++) {
+                    int id = input.readInt();
+                    Match match = new Match(DocumentsContract.buildDocumentUriUsingTree(tree, input.readUTF()),
+                            input.readUTF());
+                    if (input.readBoolean()) match.duplicate = input.readUTF();
+                    restoredIndex.put(id, match);
+                }
+            }
+            directories.putAll(restored);
+            index = restoredIndex;
+        } catch (IOException | IllegalArgumentException ignored) {
+            // Missing, evicted or incomplete metadata falls back to provider queries.
+            directories.clear();
+            index = null;
+        }
+    }
+
+    private static int snapshotCount(DataInputStream input) throws IOException {
+        int count = input.readInt();
+        if (count < 0 || count > 1000000) throw new IOException("Invalid MIDI index.");
+        return count;
+    }
+
+    private void saveFolderSnapshot() {
+        if (!metadataDirty || tree == null) return;
+        File temporary = null;
+        try {
+            File destination = new File(context.getCacheDir(), "midi-" + uriKey(tree) + ".index");
+            temporary = File.createTempFile("midi-index-", ".partial", context.getCacheDir());
+            try (DataOutputStream output = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(temporary)))) {
+                output.writeInt(1);
+                output.writeUTF(selectedTree);
+                output.writeInt(directories.size());
+                for (Map.Entry<String, List<Node>> entry : directories.entrySet()) {
+                    checkCancelled();
+                    output.writeUTF(entry.getKey());
+                    output.writeInt(entry.getValue().size());
+                    for (Node node : entry.getValue()) {
+                        output.writeUTF(node.id);
+                        output.writeUTF(node.name);
+                        output.writeBoolean(node.directory);
+                    }
+                }
+                output.writeBoolean(index != null);
+                if (index != null) {
+                    output.writeInt(index.size());
+                    for (Map.Entry<Integer, Match> entry : index.entrySet()) {
+                        checkCancelled();
+                        Match match = entry.getValue();
+                        output.writeInt(entry.getKey());
+                        output.writeUTF(DocumentsContract.getDocumentId(match.uri));
+                        output.writeUTF(match.path);
+                        output.writeBoolean(match.duplicate != null);
+                        if (match.duplicate != null) output.writeUTF(match.duplicate);
+                    }
+                }
+            }
+            Files.move(temporary.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            metadataDirty = false;
+        } catch (IOException | IllegalArgumentException ignored) {
+            // Cache persistence is optional; an otherwise playable song still starts.
+        } finally {
+            if (temporary != null) temporary.delete();
+        }
     }
 
     private static boolean isMidi(String name) {
