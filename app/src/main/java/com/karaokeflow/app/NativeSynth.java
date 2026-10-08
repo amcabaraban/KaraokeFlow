@@ -23,6 +23,7 @@ final class NativeSynth implements AutoCloseable {
 
     void event(MidiSequence.Event event) { nativeEvent(handle, event.status, event.data1, event.data2); }
     void render(short[] output, int offsetFrames, int frames) { nativeRender(handle, output, offsetFrames, frames); }
+    void reset() { nativeReset(handle); }
     void releaseNotes() { nativeReleaseNotes(handle); }
     int activeVoices() { return nativeActiveVoices(handle); }
 
@@ -37,6 +38,7 @@ final class NativeSynth implements AutoCloseable {
     private static native long nativeLoad(String path, Cancellation cancellation) throws IOException;
     private static native void nativeEvent(long handle, int status, int data1, int data2);
     private static native void nativeRender(long handle, short[] output, int offsetFrames, int frames);
+    private static native void nativeReset(long handle);
     private static native void nativeReleaseNotes(long handle);
     private static native int nativeActiveVoices(long handle);
     private static native void nativeClose(long handle);
