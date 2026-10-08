@@ -1,6 +1,6 @@
 # KaraokeFlow playback beta
 
-KaraokeFlow is an Android 8.0+ foreground karaoke player. The 0.3.2 beta plays user-supplied Standard MIDI files through a user-selected SF2 SoundFont and highlights synchronized lyrics.
+KaraokeFlow is an Android 8.0+ foreground karaoke player. The 0.3.3 beta plays user-supplied Standard MIDI files through a user-selected SF2 SoundFont and highlights synchronized lyrics.
 
 ## Try the beta
 
@@ -63,3 +63,11 @@ Automated builds and generated test fixtures verify code and synthesis behavior.
 ## Midnight stage design
 
 The stage uses original scalable aurora, mountain and lake artwork, cyan sung lyrics, and navy controls. Landscape reserves space beside the floating keypad; hiding it restores the full lyric width. The panel scrolls on short displays. Backspace edits number entry; Stop is the dedicated playback stop action. Phone layout and rotation still require device verification.
+
+## Large library and stage update
+
+MIDI directory metadata and the complete numeric lookup index are now saved in private cache and reused across launches. The initial lookup still queries folder metadata, but never parses the entire MIDI collection. Cache eviction may require a new scan. Use Refresh after adding, renaming, moving or deleting MIDI files; refresh removes the saved index. Catalog search runs in a background worker and displays at most 100 matching cards.
+
+Home uses the original aurora scene and navy/cyan theme. Song title, singer and duplicate details are hidden while playing or paused. In landscape, Home, Queue and Songbook are inside the toggled keypad panel, leaving the stage clear when controls are hidden.
+
+Performance with a 42,772-file provider folder and physical-device layout testing still require device verification; no loading-time claim is made.
