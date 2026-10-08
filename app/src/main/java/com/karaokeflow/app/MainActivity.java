@@ -1,6 +1,9 @@
 package com.karaokeflow.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.provider.DocumentsContract;
+import android.view.TextureView;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.content.SharedPreferences;
@@ -28,7 +31,7 @@ import java.util.concurrent.*;
 
 /** Foreground-only beta. Provider I/O and MIDI parsing run off the UI thread. */
 public class MainActivity extends Activity implements PlaybackEngine.Listener {
-    private static final int CSV = 1, FOLDER = 2, SF2 = 3;
+    private static final int CSV = 1, FOLDER = 2, SF2 = 3, ROOT_FOLDER = 4, MP3_FOLDER = 5, VIDEO_FOLDER = 6, BACKGROUND_FOLDER = 7;
     private static final int MUTED = 0xffa5aabe;
     private static final int SCREEN_HOME = 0, SCREEN_STAGE = 1, SCREEN_SEARCH = 2;
     private static final int NAVY_BG = 0xff060913;
@@ -46,6 +49,11 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private Runnable pendingSearch;
     private int searchGeneration;
     private List<SongCatalog.Song> songs = new ArrayList<>();
+    private List<SongCatalog.Song> midiSongs = new ArrayList<>(), mp3Songs = new ArrayList<>(), videoSongs = new ArrayList<>();
+    private int mediaRequest, setupRequest;
+    private boolean mediaActive;
+    private MediaPlayback media, backdropVideo;
+    private TextureView songVideoView, backgroundVideoView;
     private final List<SongCatalog.Song> queue = new ArrayList<>();
     private boolean showQueue;
     private int screen = SCREEN_HOME;
@@ -81,10 +89,25 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         super.onCreate(savedInstanceState);
         preferences = getPreferences(MODE_PRIVATE);
         files = new SongFiles(this);
-        engine = new PlaybackEngine(this, this);
+        engine = new PlaybackEngine(this, new PlaybackEngine.Listener() {
+            public void onStateChanged(PlaybackEngine.State state, String message) {
+                if (!mediaActive) MainActivity.this.onStateChanged(state, message);
+            }
+            public void onPosition(long micros) { if (!mediaActive) MainActivity.this.onPosition(micros); }
+            public void onError(String message) { if (!mediaActive) MainActivity.this.onError(message); }
+        });
+        media = new MediaPlayback(this, this, false);
+        backdropVideo = new MediaPlayback(this, new PlaybackEngine.Listener() {
+            public void onStateChanged(PlaybackEngine.State state, String message) { }
+            public void onPosition(long micros) { }
+            public void onError(String message) {
+                if (!destroyed) Toast.makeText(MainActivity.this, "Background: " + message, Toast.LENGTH_LONG).show();
+            }
+        }, true);
         buildUi();
         String catalog = preferences.getString("catalog", null);
         if (catalog != null) importCatalog(Uri.parse(catalog));
+        reloadMedia(false);
     }
 
     @Override public void onConfigurationChanged(Configuration newConfig) {
@@ -146,14 +169,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         setupStatus.setGravity(Gravity.CENTER);
         setupStatus.setPadding(0, dp(10), 0, 0);
         body.addView(setupStatus);
-        LinearLayout setup = new LinearLayout(this);
-        setup.setGravity(Gravity.CENTER_VERTICAL);
-        setup.setPadding(0, dp(8), 0, 0);
-        setup.addView(setupButton("Catalog", v -> openPicker(CSV)), new LinearLayout.LayoutParams(0, dp(48), 1));
-        setup.addView(setupButton("MIDI folder", v -> openPicker(FOLDER)), new LinearLayout.LayoutParams(0, dp(48), 1));
-        setup.addView(setupButton("SoundFont", v -> openPicker(SF2)), new LinearLayout.LayoutParams(0, dp(48), 1));
-        setup.addView(setupButton("Refresh", v -> refreshSources()), new LinearLayout.LayoutParams(0, dp(48), 1));
-        body.addView(setup);
+        body.addView(deckButton("Settings", KEY_BLUE, v -> showSettings()),
+                new LinearLayout.LayoutParams(-1, dp(52)));
         return root;
     }
     private LinearLayout menuTile(String label, int start, int end, View.OnClickListener click) {
@@ -190,6 +207,13 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         boolean landscape = isLandscape();
         FrameLayout root = new FrameLayout(this);
         root.setBackground(new StageBackdrop());
+        backgroundVideoView = new TextureView(this);
+        root.addView(backgroundVideoView, new FrameLayout.LayoutParams(-1, -1));
+        backdropVideo.attach(backgroundVideoView);
+        songVideoView = new TextureView(this);
+        root.addView(songVideoView, new FrameLayout.LayoutParams(-1, -1));
+        media.attach(songVideoView);
+        updateVideoVisibility();
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             view.setPadding(insets.getSystemWindowInsetLeft(),
                     insets.getSystemWindowInsetTop(),
@@ -210,12 +234,12 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         info.setOrientation(LinearLayout.VERTICAL);
         info.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(-1, -2);
-        stageTitle = text("Select a Song", landscape ? 30 : 24, Color.WHITE);
+        stageTitle = text("SELECT SONGS", landscape ? 30 : 24, Color.WHITE);
         stageTitle.setTypeface(null, 1);
         stageTitle.setGravity(Gravity.CENTER);
         stageTitle.setShadowLayer(dp(3), 0, 2, 0xff000000);
         info.addView(stageTitle, titleParams);
-        stageTitle.setGravity(Gravity.START);
+        stageTitle.setGravity(Gravity.CENTER);
 
         numberDisplay = text("000000", landscape ? 58 : 40, DIGIT_YELLOW);
         numberDisplay.setTypeface(null, 1);
@@ -329,6 +353,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         bottom.addView(reserveBadge, badgeParams);
         bottom.addView(deckButton("Songbook", KEY_BLUE, v -> { showQueue = false; showScreen(SCREEN_SEARCH); }),
                 new LinearLayout.LayoutParams(0, dp(48), 1));
+        bottom.addView(deckButton("Settings", KEY_BLUE, v -> showSettings()),
+                new LinearLayout.LayoutParams(0, dp(48), 1));
         return bottom;
     }
 
@@ -388,8 +414,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         }
         playerStatus.setText(playerMessage);
         updateStageMeta();
-        if (prepared != null) {
-            if (timeline == null) timeline = new LyricTimeline(prepared);
+        if (prepared != null || mediaActive) {
+            if (timeline == null && prepared != null) timeline = new LyricTimeline(prepared);
             showLyrics(lastPositionMicros);
         } else {
             timeline = null;
@@ -403,11 +429,29 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private void updateStageMeta() {
         if (stageSinger == null || selectedTitle == null) return;
         boolean singing = state == PlaybackEngine.State.PLAYING || state == PlaybackEngine.State.PAUSED;
-        int visibility = singing ? View.GONE : View.VISIBLE;
-        numberDisplay.setVisibility(entryDigits.length() > 0 ? View.VISIBLE : View.GONE);
-        stageTitle.setVisibility(visibility);
-        stageSinger.setVisibility(visibility);
-        selectedTitle.setVisibility(visibility);
+        boolean loading = state == PlaybackEngine.State.LOADING;
+        boolean entering = entryDigits.length() > 0;
+        stageTitle.setText("SELECT SONGS");
+        stageTitle.setVisibility(singing || loading ? View.GONE : View.VISIBLE);
+        numberDisplay.setVisibility(entering || (!singing && !loading) ? View.VISIBLE : View.GONE);
+        stageSinger.setVisibility(View.GONE);
+        selectedTitle.setVisibility(entering ? View.VISIBLE : View.GONE);
+        if (entering) {
+            List<SongCatalog.Song> matches = entryMatches();
+            StringBuilder preview = new StringBuilder();
+            for (SongCatalog.Song song : matches) {
+                if (preview.length() > 0) preview.append("\n");
+                preview.append(song.songNumber()).append("  ").append(song.title);
+            }
+            selectedTitle.setMaxLines(3);
+            selectedTitle.setText(preview.length() == 0 ? "No matching song" : preview.toString());
+        }
+        currentLyric.setVisibility(singing && !mediaActive ? View.VISIBLE : View.GONE);
+        nextLyric.setVisibility(singing && !mediaActive ? View.VISIBLE : View.GONE);
+        progress.setVisibility(singing || loading ? View.VISIBLE : View.GONE);
+        clock.setVisibility(singing ? View.VISIBLE : View.GONE);
+        playerStatus.setVisibility(loading || state == PlaybackEngine.State.ERROR ? View.VISIBLE : View.GONE);
+        updateVideoVisibility();
     }
 
     private Button deckButton(String label, int color, View.OnClickListener click) {
@@ -428,8 +472,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(6), 0, dp(2));
         Button replayButton = deckButton("↻", KEY_BLUE, v -> replayCurrent());
-        pause = deckButton("\u275A\u275A", KEY_BLUE, v -> engine.pause());
-        play = deckButton("\u25B6", KEY_BLUE, v -> playSelected());
+        pause = deckButton("\u275A\u275A", KEY_BLUE, v -> pauseCurrent());
+        play = deckButton("\u25B6", KEY_BLUE, v -> playEntryOrSelected());
         next = deckButton("▶|", KEY_BLUE, v -> playNext());
         stop = deckButton("\u25A0", KEY_BLUE, v -> stopPlayback());
         replayButton.setContentDescription("Replay current song from the beginning");
@@ -475,21 +519,49 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         } else if (key.matches("[0-9]")) {
             if (entryDigits.length() >= 6) entryDigits.delete(0, 1);
             entryDigits.append(key);
-            if (entryDigits.length() == 6) reserveEntry();
+
         }
         refreshEntry();
     }
 
     private void refreshEntry() {
         if (numberDisplay == null) return;
-        String shown = entryDigits.length() == 0 ? ""
-                : String.format(Locale.ROOT, "%6s", entryDigits.toString()).replace(' ', '0');
-        numberDisplay.setText(shown);
-        numberDisplay.setVisibility(shown.isEmpty() ? View.GONE : View.VISIBLE);
+        String digits = entryDigits.toString();
+        numberDisplay.setText(digits.isEmpty() ? "000000"
+                : String.format(Locale.ROOT, "%6s", digits).replace(' ', '0'));
+        updateStageMeta();
+        updateControls();
+    }
+
+    private List<SongCatalog.Song> entryMatches() {
+        List<SongCatalog.Song> matches = new ArrayList<>();
+        if (entryDigits.length() == 0) return matches;
+        String digits = entryDigits.toString();
+        String exact = String.format(Locale.ROOT, "%6s", digits).replace(' ', '0');
+        for (SongCatalog.Song song : songs) if (song.songNumber().equals(exact)) {
+            matches.add(song); break;
+        }
+        for (SongCatalog.Song song : songs) {
+            if (matches.size() >= 3) break;
+            if (song.songNumber().startsWith(digits) && !matches.contains(song)) matches.add(song);
+        }
+        return matches;
+    }
+
+    private void playEntryOrSelected() {
+        if (entryDigits.length() > 0) {
+            int id = Integer.parseInt(entryDigits.toString());
+            for (SongCatalog.Song song : songs) if (song.id == id) {
+                entryDigits.setLength(0); refreshEntry(); selectSong(song); return;
+            }
+            Toast.makeText(this, "No song with this number", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        playSelected();
     }
 
     private void updateReserveBadge() {
-        if (reserveBadge != null) reserveBadge.setText("RSV: " + queue.size());
+        if (reserveBadge != null) reserveBadge.setText("Queue · " + queue.size());
         if (queueTab != null) queueTab.setText("Up next (" + queue.size() + ")");
     }
 
@@ -570,11 +642,195 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         if (stageRoot != null) stageRoot.setVisibility(next == SCREEN_STAGE ? View.VISIBLE : View.GONE);
         if (searchRoot != null) searchRoot.setVisibility(next == SCREEN_SEARCH ? View.VISIBLE : View.GONE);
         if (next == SCREEN_SEARCH && list != null && search != null) render(search.getText().toString());
+        if (backdropVideo != null) {
+            if (next == SCREEN_STAGE && state == PlaybackEngine.State.PLAYING && !mediaActive) startBackdrop();
+            else if (next != SCREEN_STAGE) backdropVideo.pause();
+        }
+    }
+
+    private void showSettings() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(18), dp(8), dp(18), dp(16));
+        content.setBackgroundColor(NAVY_BG);
+        content.addView(text("Choose KaraokeFlow once to find its CSV, SF2 and SongHub_Extracted folder. "
+                + "Override any source below. MP3 and concert filenames need a unique six-digit number "
+                + "(050001 Song Title.mp3). Background filenames need no number.", 14, MUTED));
+        addSetting(content, "KaraokeFlow folder", "root", ROOT_FOLDER);
+        addSetting(content, "Catalog CSV", "catalog", CSV);
+        addSetting(content, "MIDI folder", "midi", FOLDER);
+        addSetting(content, "SoundFont SF2", "sf2", SF2);
+        addSetting(content, "MP3 songs folder", "mp3", MP3_FOLDER);
+        addSetting(content, "MP4 concerts folder", "video", VIDEO_FOLDER);
+        addSetting(content, "MP4 backgrounds folder", "backgroundFolder", BACKGROUND_FOLDER);
+        content.addView(deckButton("Choose background video", KEY_BLUE, v -> {
+            String folder = preferences.getString("backgroundFolder", null);
+            if (folder == null) openPicker(BACKGROUND_FOLDER);
+            else chooseBackground(Uri.parse(folder));
+        }), new LinearLayout.LayoutParams(-1, dp(48)));
+        content.addView(deckButton("Use illustrated background", KEY_DARK, v -> {
+            preferences.edit().remove("background").apply();
+            backdropVideo.stop(); updateVideoVisibility();
+        }), new LinearLayout.LayoutParams(-1, dp(48)));
+        content.addView(deckButton("Refresh library and files", KEY_BLUE, v -> refreshSources()),
+                new LinearLayout.LayoutParams(-1, dp(48)));
+        ScrollView scroll = new ScrollView(this); scroll.addView(content);
+        new AlertDialog.Builder(this).setTitle("Settings").setView(scroll).setPositiveButton("Done", null).show();
+    }
+
+    private void addSetting(LinearLayout content, String label, String key, int code) {
+        String name = preferences.getString(key + "Name", preferences.contains(key) ? "Selected" : "Not selected");
+        content.addView(deckButton(label + " · " + name, KEY_BLUE, v -> openPicker(code)),
+                new LinearLayout.LayoutParams(-1, dp(52)));
+    }
+
+    private void notice(String message) {
+        if (destroyed) return;
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        if (setupStatus != null) setupStatus.setText(message);
+    }
+
+    private void discoverRoot(Uri root) {
+        final int token = ++setupRequest;
+        notice("Finding catalog, SoundFont and MIDI folder…");
+        io.execute(() -> {
+            try {
+                List<LibrarySetup.Entry> entries = LibrarySetup.children(this, root,
+                        DocumentsContract.getTreeDocumentId(root));
+                List<LibrarySetup.Entry> catalogs = new ArrayList<>(), fonts = new ArrayList<>();
+                LibrarySetup.Entry midi = null;
+                for (LibrarySetup.Entry entry : entries) {
+                    String name = entry.name.toLowerCase(Locale.ROOT);
+                    if (!entry.directory && name.endsWith(".csv")) catalogs.add(entry);
+                    if (!entry.directory && name.endsWith(".sf2")) fonts.add(entry);
+                    if (entry.directory && name.equals("songhub_extracted")) midi = entry;
+                }
+                final LibrarySetup.Entry midiFolder = midi;
+                ui.post(() -> {
+                    if (destroyed || token != setupRequest) return;
+                    stopPlayback(); prepared = null; selectedFont = null; engine.invalidateSoundFont();
+                    if (midiFolder != null) {
+                        files = new SongFiles(this);
+                        preferences.edit().putString("midi", LibrarySetup.subtree(root, midiFolder).toString())
+                                .putString("midiName", midiFolder.name).apply();
+                    }
+                    chooseDiscovered("Catalog", catalogs, entry -> {
+                        preferences.edit().putString("catalogName", entry.name).apply();
+                        importCatalog(entry.uri);
+                    });
+                    chooseDiscovered("SoundFont", fonts, entry -> {
+                        preferences.edit().putString("sf2", entry.uri.toString()).putString("sf2Name", entry.name).apply();
+                        updateSetup();
+                    });
+                    updateSetup();
+                    notice("Found " + catalogs.size() + " CSV, " + fonts.size() + " SF2; "
+                            + (midiFolder == null ? "MIDI folder missing. Choose it in Settings." : "MIDI folder ready."));
+                });
+            } catch (Exception error) { ui.post(() -> { if (token == setupRequest) notice(reason(error)); }); }
+        });
+    }
+
+    private interface EntryChoice { void choose(LibrarySetup.Entry entry); }
+    private void chooseDiscovered(String title, List<LibrarySetup.Entry> entries, EntryChoice choice) {
+        if (entries.size() == 1) { choice.choose(entries.get(0)); return; }
+        if (entries.isEmpty()) return;
+        String[] names = new String[entries.size()];
+        for (int i = 0; i < names.length; i++) names[i] = entries.get(i).name;
+        new AlertDialog.Builder(this).setTitle("Choose " + title).setItems(names,
+                (dialog, which) -> choice.choose(entries.get(which))).setNegativeButton("Cancel", null).show();
+    }
+
+    private void reloadMedia(boolean refresh) {
+        final int token = ++mediaRequest;
+        final String mp3 = preferences.getString("mp3", null), video = preferences.getString("video", null);
+        io.execute(() -> {
+            List<SongCatalog.Song> audioSongs = new ArrayList<>(), concerts = new ArrayList<>();
+            String problem = "";
+            try { if (mp3 != null) audioSongs = LibrarySetup.media(this, Uri.parse(mp3), "mp3", refresh); }
+            catch (Exception error) { problem = "MP3: " + reason(error); }
+            try { if (video != null) concerts = LibrarySetup.media(this, Uri.parse(video), "mp4", refresh); }
+            catch (Exception error) { problem += " MP4: " + reason(error); }
+            final List<SongCatalog.Song> loadedAudio = audioSongs, loadedVideo = concerts;
+            final String error = problem;
+            ui.post(() -> {
+                if (destroyed || token != mediaRequest) return;
+                mp3Songs = loadedAudio; videoSongs = loadedVideo;
+                mergeLibrary(); updateSetup(); refreshEntry();
+                if (search != null) render(search.getText().toString());
+                if (!error.isEmpty()) notice(error);
+                else if (refresh) notice("Media folders refreshed: " + mp3Songs.size() + " MP3, " + videoSongs.size() + " concerts.");
+            });
+        });
+    }
+
+    private void mergeLibrary() {
+        List<SongCatalog.Song> merged = new ArrayList<>(midiSongs);
+        Set<Integer> ids = new HashSet<>();
+        for (SongCatalog.Song song : midiSongs) ids.add(song.id);
+        int conflicts = 0;
+        for (List<SongCatalog.Song> source : Arrays.asList(mp3Songs, videoSongs)) {
+            for (SongCatalog.Song song : source) {
+                if (ids.add(song.id)) merged.add(song);
+                else conflicts++;
+            }
+        }
+        songs = merged;
+        if (conflicts > 0) notice(conflicts + " media number conflicts. Rename MP3/concert files with unused numbers.");
+    }
+
+    private void chooseBackground(Uri folder) {
+        final int token = ++setupRequest;
+        io.execute(() -> {
+            try {
+                List<LibrarySetup.Entry> entries = LibrarySetup.children(this, folder,
+                        DocumentsContract.isDocumentUri(this, folder)
+                                ? DocumentsContract.getDocumentId(folder) : DocumentsContract.getTreeDocumentId(folder));
+                List<LibrarySetup.Entry> videos = new ArrayList<>();
+                for (LibrarySetup.Entry entry : entries)
+                    if (!entry.directory && entry.name.toLowerCase(Locale.ROOT).endsWith(".mp4")) videos.add(entry);
+                ui.post(() -> {
+                    if (destroyed || token != setupRequest) return;
+                    if (videos.isEmpty()) { notice("No MP4 backgrounds in this folder."); return; }
+                    chooseDiscovered("lyric background", videos, entry -> {
+                        preferences.edit().putString("background", entry.uri.toString()).apply();
+                        backdropVideo.stop(); backgroundSession = null;
+                        if (state == PlaybackEngine.State.PLAYING && !mediaActive) startBackdrop();
+                        updateVideoVisibility();
+                    });
+                });
+            } catch (Exception error) { ui.post(() -> { if (token == setupRequest) notice(reason(error)); }); }
+        });
+    }
+
+    private String backgroundSession;
+    private void startBackdrop() {
+        String uri = preferences.getString("background", null);
+        if (uri == null || mediaActive || !foreground || screen != SCREEN_STAGE) return;
+        if (uri.equals(backgroundSession)) backdropVideo.resume();
+        else { backgroundSession = uri; backdropVideo.start(Uri.parse(uri)); }
+        updateVideoVisibility();
+    }
+
+    private void updateVideoVisibility() {
+        if (songVideoView == null || backgroundVideoView == null) return;
+        boolean video = false;
+        if (mediaActive && selected != null)
+            for (SongCatalog.Song song : videoSongs) if (song.file.equals(selected.file)) { video = true; break; }
+        boolean active = state == PlaybackEngine.State.PLAYING || state == PlaybackEngine.State.PAUSED
+                || state == PlaybackEngine.State.LOADING;
+        songVideoView.setVisibility(video && active ? View.VISIBLE : View.INVISIBLE);
+        backgroundVideoView.setVisibility(!mediaActive && active && preferences.contains("background")
+                ? View.VISIBLE : View.INVISIBLE);
+    }
+
+    private void pauseCurrent() {
+        if (mediaActive) media.pause(); else engine.pause();
+        backdropVideo.pause();
     }
 
     private void openPicker(int code) {
         Intent intent;
-        if (code == FOLDER) intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        if (code >= ROOT_FOLDER || code == FOLDER) intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         else {
             intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -592,6 +848,17 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         try { getContentResolver().takePersistableUriPermission(uri, data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION); }
         catch (SecurityException ignored) {
             playerStatus.setText("Temporary file access: choose the files again after restarting.");
+        }
+        if (code == ROOT_FOLDER) {
+            preferences.edit().putString("root", uri.toString()).putString("rootName", displayName(uri)).apply();
+            discoverRoot(uri); return;
+        }
+        if (code == MP3_FOLDER || code == VIDEO_FOLDER || code == BACKGROUND_FOLDER) {
+            String key = code == MP3_FOLDER ? "mp3" : code == VIDEO_FOLDER ? "video" : "backgroundFolder";
+            preferences.edit().putString(key, uri.toString()).putString(key + "Name", displayName(uri)).apply();
+            if (code == BACKGROUND_FOLDER) chooseBackground(uri);
+            else reloadMedia(true);
+            return;
         }
         if (code == CSV) importCatalog(uri);
         else if (code == FOLDER || code == SF2) {
@@ -629,7 +896,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
                 List<SongCatalog.Song> loaded = SongCatalog.parse(input);
                 runOnUiThread(() -> {
                     if (destroyed || token != catalogRequest) return;
-                    songs = loaded; preferences.edit().putString("catalog", uri.toString()).apply();
+                    midiSongs = loaded; mergeLibrary(); preferences.edit().putString("catalog", uri.toString()).putString("catalogName", displayName(uri)).apply();
                     updateSetup(); render(search.getText().toString());
                 });
             } catch (Exception error) {
@@ -643,6 +910,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
 
     private void refreshSources() {
         stopPlayback();
+        reloadMedia(true);
         engine.invalidateSoundFont();
         prepared = null;
         timeline = null;
@@ -672,7 +940,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private void updateSetup() {
         String folder = preferences.getString("midiName", preferences.contains("midi") ? "Selected" : "Choose folder");
         String font = preferences.getString("sf2Name", preferences.contains("sf2") ? "Selected" : "Choose .sf2");
-        setupStatus.setText("MIDI: " + folder + "\nSF2: " + font + "  •  " + songs.size() + " songs");
+        setupStatus.setText("MIDI: " + folder + "\nSF2: " + font + "  •  " + songs.size() + " songs / concerts");
     }
 
     private void selectSong(SongCatalog.Song song) {
@@ -712,10 +980,18 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
 
     private void playSelected() {
         if (selected == null || !foreground || state == PlaybackEngine.State.LOADING || state == PlaybackEngine.State.PLAYING) return;
-        if (state == PlaybackEngine.State.PAUSED) { engine.resume(); return; }
+        if (state == PlaybackEngine.State.PAUSED) { if (mediaActive) media.resume(); else engine.resume(); return; }
+        if (selected.file.startsWith("content://")) {
+            cancelPreparation(); engine.stop(); mediaActive = true;
+            prepared = null; timeline = null;
+            backdropVideo.stop(); updateVideoVisibility();
+            media.start(Uri.parse(selected.file)); return;
+        }
+        mediaActive = false; media.stop(); updateVideoVisibility();
         String treeValue = preferences.getString("midi", null), fontValue = preferences.getString("sf2", null);
         if (treeValue == null || fontValue == null) {
-            playerStatus.setText("Choose a MIDI folder and a .sf2 SoundFont before playing."); return;
+            state = PlaybackEngine.State.ERROR;
+            playerStatus.setText("Choose a MIDI folder and a .sf2 SoundFont in Settings."); updateControls(); return;
         }
         if (prepared != null && selectedFont != null && selectedFont.exists()) {
             state = PlaybackEngine.State.LOADING; updateControls(); showLyrics(0);
@@ -755,7 +1031,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         if (preparation != null) { preparation.cancel(true); preparation = null; }
     }
     private void stopPlayback() {
-        cancelPreparation(); engine.stop(); state = PlaybackEngine.State.STOPPED;
+        cancelPreparation(); engine.stop(); media.stop(); backdropVideo.stop(); backgroundSession = null; mediaActive = false;
+        state = PlaybackEngine.State.STOPPED;
         lastPositionMicros = 0;
         showLyrics(0);
         updateStageMeta();
@@ -776,6 +1053,9 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             if (numberDisplay != null) numberDisplay.setText("");
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         } else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (state == PlaybackEngine.State.PLAYING && !mediaActive) startBackdrop();
+        else if (state == PlaybackEngine.State.PAUSED) backdropVideo.pause();
+        else if (state != PlaybackEngine.State.LOADING) { backdropVideo.stop(); backgroundSession = null; }
         updateStageMeta();
         updateControls();
     }
@@ -788,6 +1068,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     @Override public void onError(String message) {
         if (destroyed) return;
         state = PlaybackEngine.State.ERROR;
+        backdropVideo.stop(); backgroundSession = null;
         playerMessage = "Playback failed: " + message;
         playerStatus.setText(playerMessage);
         updateStageMeta();
@@ -795,7 +1076,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     }
     private void showLyrics(long micros) {
         if (clock == null) return;
-        long duration = prepared == null ? 0 : prepared.durationMicros;
+        long duration = mediaActive ? media.durationMicros() : prepared == null ? 0 : prepared.durationMicros;
         clock.setText(time(micros) + " / " + time(duration));
         progress.setProgress(duration <= 0 ? 0 : (int) Math.min(1000, micros * 1000L / duration));
         if (timeline == null) { currentLyric.setText("Your lyrics will appear here"); nextLyric.setText(""); }
@@ -809,8 +1090,9 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         }
     }
     private void updateControls() {
+        updateStageMeta();
         if (play == null || pause == null || stop == null) return;
-        play.setEnabled(selected != null && state != PlaybackEngine.State.LOADING && state != PlaybackEngine.State.PLAYING);
+        play.setEnabled(entryDigits.length() > 0 || (selected != null && state != PlaybackEngine.State.LOADING && state != PlaybackEngine.State.PLAYING));
         pause.setEnabled(state == PlaybackEngine.State.PLAYING);
         stop.setEnabled(state == PlaybackEngine.State.LOADING || state == PlaybackEngine.State.PLAYING
                 || state == PlaybackEngine.State.PAUSED || state == PlaybackEngine.State.COMPLETED);
@@ -893,10 +1175,10 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     @Override protected void onPause() {
         foreground = false;
         if (preparation != null) stopPlayback();
-        engine.pause(); super.onPause();
+        pauseCurrent(); backdropVideo.pause(); super.onPause();
     }
     @Override protected void onDestroy() {
-        destroyed = true; catalogRequest++; searchGeneration++; if (pendingSearch != null) ui.removeCallbacks(pendingSearch); cancelPreparation(); engine.close(); io.shutdownNow(); searchWorker.shutdownNow(); super.onDestroy();
+        destroyed = true; catalogRequest++; searchGeneration++; if (pendingSearch != null) ui.removeCallbacks(pendingSearch); cancelPreparation(); engine.close(); media.close(); backdropVideo.close(); io.shutdownNow(); searchWorker.shutdownNow(); super.onDestroy();
     }
     private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + .5f); }
     private GradientDrawable background(int color, int radius) {
