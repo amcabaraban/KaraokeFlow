@@ -84,6 +84,17 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         if (catalog != null) importCatalog(Uri.parse(catalog));
     }
 
+    @Override public void onConfigurationChanged(Configuration newConfig) {
+        String query = search == null ? "" : search.getText().toString();
+        super.onConfigurationChanged(newConfig);
+        buildUi();
+        if (search != null) {
+            search.setText(query);
+            search.setSelection(search.length());
+            render(query);
+        }
+    }
+
     private LinearLayout screenRoot() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -633,6 +644,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         selectedTitle.setText("#" + song.songNumber() + "  " + name);
         stageTitle.setText(name);
         stageSinger.setText("Singer: " + (song.artist.isEmpty() ? "Unknown artist" : song.artist));
+        updateStageMeta();
         updateControls(); playSelected();
     }
     private void setTab(boolean toQueue) {
@@ -706,23 +718,36 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     }
     private void stopPlayback() {
         cancelPreparation(); engine.stop(); state = PlaybackEngine.State.STOPPED;
-        showLyrics(0); playerStatus.setText("Stopped. Press Play to start from the beginning."); updateControls();
+        lastPositionMicros = 0;
+        showLyrics(0);
+        updateStageMeta();
+        playerStatus.setText("Stopped. Press Play to start from the beginning."); updateControls();
     }
     @Override public void onStateChanged(PlaybackEngine.State newState, String message) {
         if (destroyed || (newState == PlaybackEngine.State.STOPPED && preparation != null)) return;
         state = newState; playerStatus.setText(message);
-        if (state == PlaybackEngine.State.STOPPED) showLyrics(0);
+        if (state == PlaybackEngine.State.STOPPED) {
+            lastPositionMicros = 0;
+            showLyrics(0);
+        }
         if (state == PlaybackEngine.State.PLAYING) {
             entryDigits.setLength(0);
             if (numberDisplay != null) numberDisplay.setText("");
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         } else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        updateStageMeta();
         updateControls();
     }
-    @Override public void onPosition(long micros) { if (!destroyed) showLyrics(micros); }
+    @Override public void onPosition(long micros) {
+        if (!destroyed) {
+            lastPositionMicros = micros;
+            showLyrics(micros);
+        }
+    }
     @Override public void onError(String message) {
         if (destroyed) return;
         state = PlaybackEngine.State.ERROR; playerStatus.setText("Playback failed: " + message);
+        updateStageMeta();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); updateControls();
     }
     private void showLyrics(long micros) {
