@@ -33,11 +33,11 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private static final int SCREEN_HOME = 0, SCREEN_STAGE = 1, SCREEN_SEARCH = 2;
     private static final int NAVY_BG = 0xff060913;
     private static final int STAGE_TOP = 0xff0e4aa8, STAGE_BOTTOM = 0xff061a3a;
-    private static final int CHIP_RED = 0xffd23b2e;
-    private static final int CHIP_GREEN = 0xff2fae4e;
-    private static final int KEY_BLUE = 0xff1e4fa8;
-    private static final int KEY_DARK = 0xff1c2230;
-    private static final int KEY_PURPLE = 0xff6a2fb3;
+    private static final int CHIP_RED = 0xff522431;
+    private static final int CHIP_GREEN = 0xff104432;
+    private static final int KEY_BLUE = 0xff123758;
+    private static final int KEY_DARK = 0xff091b2b;
+    private static final int KEY_PURPLE = 0xff123348;
     private static final int DIGIT_YELLOW = 0xffffc21a;
     private static final int SINGER_YELLOW = 0xffffd21f;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -51,7 +51,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private final StringBuilder entryDigits = new StringBuilder();
     private LinearLayout homeRoot, searchRoot;
     private FrameLayout stageRoot, shell;
-    private LinearLayout landscapePanel;
+    private LinearLayout landscapePanel, stageBody;
+    private int panelWidth;
     private Button keypadToggle;
     private LinearLayout list;
     private EditText search;
@@ -185,7 +186,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private FrameLayout buildStage() {
         boolean landscape = isLandscape();
         FrameLayout root = new FrameLayout(this);
-        root.setBackground(stageBackground());
+        root.setBackground(new StageBackdrop());
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             view.setPadding(insets.getSystemWindowInsetLeft(),
                     insets.getSystemWindowInsetTop(),
@@ -195,6 +196,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         });
 
         LinearLayout body = new LinearLayout(this);
+        stageBody = body;
         body.setOrientation(LinearLayout.VERTICAL);
         int horizontal = landscape ? 24 : 16;
         body.setPadding(dp(horizontal), dp(landscape ? 12 : 16),
@@ -204,11 +206,13 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
         info.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(-1, -2);
         stageTitle = text("Select a Song", landscape ? 30 : 24, Color.WHITE);
         stageTitle.setTypeface(null, 1);
         stageTitle.setGravity(Gravity.CENTER);
         stageTitle.setShadowLayer(dp(3), 0, 2, 0xff000000);
-        info.addView(stageTitle);
+        info.addView(stageTitle, titleParams);
+        stageTitle.setGravity(Gravity.START);
 
         numberDisplay = text("000000", landscape ? 58 : 40, DIGIT_YELLOW);
         numberDisplay.setTypeface(null, 1);
@@ -226,15 +230,15 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         selectedTitle.setMaxLines(1);
         info.addView(selectedTitle);
 
-        currentLyric = text("Your lyrics will appear here", landscape ? 28 : 20, Color.WHITE);
+        currentLyric = text("Your lyrics will appear here", landscape ? 34 : 26, Color.WHITE);
         currentLyric.setGravity(Gravity.CENTER);
         currentLyric.setMinLines(1);
-        currentLyric.setMaxLines(2);
+        currentLyric.setMaxLines(3);
         currentLyric.setTypeface(null, 1);
         currentLyric.setShadowLayer(dp(3), 0, 2, 0xff000000);
         info.addView(currentLyric);
 
-        nextLyric = text("", landscape ? 16 : 13, 0xffbcd0f5);
+        nextLyric = text("", landscape ? 24 : 20, 0xffbcd0f5);
         nextLyric.setGravity(Gravity.CENTER);
         nextLyric.setMaxLines(1);
         info.addView(nextLyric);
@@ -259,6 +263,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
 
         if (landscape) {
             body.addView(navigationRow(), new LinearLayout.LayoutParams(-1, dp(52)));
+            int availableHeight = getResources().getConfiguration().screenHeightDp;
+            panelWidth = dp(Math.min(320, getResources().getConfiguration().screenWidthDp / 2));
 
             landscapePanel = new LinearLayout(this);
             landscapePanel.setOrientation(LinearLayout.VERTICAL);
@@ -275,10 +281,16 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             landscapePanel.addView(transportRow());
             landscapePanel.addView(keypadGrid());
             landscapePanel.setVisibility(landscapeKeypadVisible ? View.VISIBLE : View.GONE);
-            FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(dp(340), -2);
+            ScrollView panelScroll = new ScrollView(this);
+            panelScroll.setFillViewport(false);
+            panelScroll.addView(landscapePanel);
+            panelScroll.setVisibility(landscapeKeypadVisible ? View.VISIBLE : View.GONE);
+            panelScroll.setTag("floatingControls");
+            FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(panelWidth, dp(Math.max(160, availableHeight - 100)));
             panelParams.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
             panelParams.setMargins(0, dp(10), dp(12), dp(10));
-            root.addView(landscapePanel, panelParams);
+            root.addView(panelScroll, panelParams);
+            updateStageSpace();
 
             keypadToggle = deckButton(landscapeKeypadVisible ? "×" : "⌨", KEY_BLUE,
                     v -> toggleLandscapeKeypad());
@@ -305,14 +317,14 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         bottom.setPadding(0, dp(6), 0, 0);
         bottom.addView(deckButton("Home", KEY_BLUE, v -> showScreen(SCREEN_HOME)),
                 new LinearLayout.LayoutParams(0, dp(48), 1));
-        reserveBadge = text("RSV: " + queue.size(), 12, Color.WHITE);
+        reserveBadge = text("Queue · " + queue.size(), 12, Color.WHITE);
         reserveBadge.setGravity(Gravity.CENTER);
         reserveBadge.setBackground(background(KEY_PURPLE, 8));
         reserveBadge.setOnClickListener(v -> { showQueue = true; showScreen(SCREEN_SEARCH); });
         LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(0, dp(48), 1);
         badgeParams.setMargins(dp(6), 0, dp(6), 0);
         bottom.addView(reserveBadge, badgeParams);
-        bottom.addView(deckButton("Search", KEY_BLUE, v -> showScreen(SCREEN_SEARCH)),
+        bottom.addView(deckButton("Songbook", KEY_BLUE, v -> { showQueue = false; showScreen(SCREEN_SEARCH); }),
                 new LinearLayout.LayoutParams(0, dp(48), 1));
         return bottom;
     }
@@ -332,9 +344,18 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         if (landscapePanel == null || keypadToggle == null) return;
         landscapeKeypadVisible = !landscapeKeypadVisible;
         landscapePanel.setVisibility(landscapeKeypadVisible ? View.VISIBLE : View.GONE);
+        View floating = stageRoot.findViewWithTag("floatingControls");
+        if (floating != null) floating.setVisibility(landscapeKeypadVisible ? View.VISIBLE : View.GONE);
+        updateStageSpace();
         keypadToggle.setText(landscapeKeypadVisible ? "×" : "⌨");
         keypadToggle.setContentDescription(landscapeKeypadVisible
                 ? "Hide floating keypad" : "Show floating keypad");
+    }
+
+    private void updateStageSpace() {
+        if (stageBody == null || !isLandscape()) return;
+        stageBody.setPadding(dp(24), dp(12),
+                landscapeKeypadVisible ? panelWidth + dp(24) : dp(24), dp(10));
     }
 
     private void buildUi() {
@@ -378,14 +399,23 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
 
     private void updateStageMeta() {
         if (stageSinger == null || selectedTitle == null) return;
-        int visibility = state == PlaybackEngine.State.PLAYING ? View.GONE : View.VISIBLE;
+        boolean singing = state == PlaybackEngine.State.PLAYING || state == PlaybackEngine.State.PAUSED;
+        int visibility = singing ? View.GONE : View.VISIBLE;
+        numberDisplay.setVisibility(entryDigits.length() > 0 || !singing ? View.VISIBLE : View.GONE);
         stageSinger.setVisibility(visibility);
         selectedTitle.setVisibility(visibility);
     }
 
     private Button deckButton(String label, int color, View.OnClickListener click) {
         Button b = button(label, click);
-        b.setBackground(background(color, 8));
+        GradientDrawable face = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{color, 0xff061422});
+        face.setCornerRadius(dp(12));
+        face.setStroke(dp(1), 0xff385367);
+        b.setBackground(face);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setPadding(dp(2), 0, dp(2), 0);
         return b;
     }
 
@@ -393,10 +423,10 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(6), 0, dp(2));
-        Button replayButton = deckButton("Replay", KEY_BLUE, v -> replayCurrent());
+        Button replayButton = deckButton("↻", KEY_BLUE, v -> replayCurrent());
         pause = deckButton("\u275A\u275A", KEY_BLUE, v -> engine.pause());
         play = deckButton("\u25B6", KEY_BLUE, v -> playSelected());
-        next = deckButton("Next", KEY_BLUE, v -> playNext());
+        next = deckButton("▶|", KEY_BLUE, v -> playNext());
         stop = deckButton("\u25A0", KEY_BLUE, v -> stopPlayback());
         replayButton.setContentDescription("Replay current song from the beginning");
         pause.setContentDescription("Pause playback");
@@ -422,7 +452,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
                 int color = "RES".equals(key) ? CHIP_GREEN : "CAN".equals(key) ? CHIP_RED : KEY_DARK;
                 Button b = deckButton(key, color, v -> onKeypad(key));
                 b.setTextSize(18); b.setTypeface(null, 1);
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(52), 1);
+                if ("CAN".equals(key)) b.setText("⌫");
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(isLandscape() ? 48 : 50), 1);
                 params.setMargins(dp(3), dp(3), dp(3), dp(3));
                 row.addView(b, params);
             }
@@ -434,7 +465,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private void onKeypad(String key) {
         if ("CAN".equals(key)) {
             if (entryDigits.length() > 0) entryDigits.deleteCharAt(entryDigits.length() - 1);
-            else stopPlayback();
+            
         } else if ("RES".equals(key)) {
             reserveEntry();
         } else if (key.matches("[0-9]")) {
@@ -447,9 +478,10 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
 
     private void refreshEntry() {
         if (numberDisplay == null) return;
-        String shown = entryDigits.length() == 0 ? "000000"
+        String shown = entryDigits.length() == 0 ? ""
                 : String.format(Locale.ROOT, "%6s", entryDigits.toString()).replace(' ', '0');
         numberDisplay.setText(shown);
+        numberDisplay.setVisibility(shown.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     private void updateReserveBadge() {
@@ -458,7 +490,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     }
 
     private void reserveEntry() {
-        if (entryDigits.length() == 0) { playNext(); return; }
+        if (entryDigits.length() == 0) return;
         while (entryDigits.length() < 6) entryDigits.insert(0, "0");
         String number = entryDigits.toString();
         entryDigits.setLength(0);
@@ -768,7 +800,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             LyricTimeline.Cue cue = timeline.at(micros);
             SpannableString line = new SpannableString(cue.line.isEmpty() ? "Music intro…" : cue.line);
             int sung = Math.min(cue.sungCharacters, line.length());
-            if (sung > 0) line.setSpan(new ForegroundColorSpan(0xffb7a0ff), 0, sung, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            if (sung > 0) line.setSpan(new ForegroundColorSpan(0xff24d3ee), 0, sung, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             currentLyric.setText(line); nextLyric.setText(cue.nextLine);
         }
     }
