@@ -1,6 +1,6 @@
 # KaraokeFlow playback beta
 
-KaraokeFlow is an Android 8.0+ foreground karaoke player. The 0.4.1 beta plays user-supplied Standard MIDI files through a user-selected SF2 SoundFont and highlights synchronized lyrics.
+KaraokeFlow is an Android 8.0+ foreground karaoke player. The 0.4.2 beta plays user-supplied Standard MIDI files through a user-selected SF2 SoundFont and highlights synchronized lyrics.
 
 ## Try the beta
 
@@ -87,3 +87,7 @@ All audio pauses when the app loses foreground or audio focus, or headphones dis
 ## Reservation stage behavior (0.4.1)
 
 Reserved six-digit song numbers appear at the top of the stage in queue order, separated by dots. The strip scrolls horizontally when it is longer than the screen and stays available with the landscape keypad hidden. Stop and Next consume and start the first reservation. If there is no reservation, Stop stops playback. Internal lifecycle/settings stops never consume the queue. Each newly selected song displays its title above the stage for at least 1.2 seconds and throughout loading; the title disappears when playback starts. Stop/Next during this introduction cancels the pending song before switching. Leaving the app cancels a pending introduction. Rotation preserves the introduction timer. Song number hash markers are replaced with dots.
+
+## Compact live reservations (0.4.2)
+
+While a song is playing or paused, typed reservation numbers and matching titles appear in a compact panel near the top, below the queued numbers and separated from the larger lyric area. The live number uses 18–20 sp and the title 13–14 sp, with a two-line preview. Idle selection retains the larger number display. A cyan indeterminate progress bar animates during title introductions and song loading, then disappears when playback starts. Repeated hash placeholders in MIDI lyric lines display as dots; one-for-one character replacement preserves timed highlight offsets. Single hash characters in actual words remain unchanged. Device layout verification remains required.
