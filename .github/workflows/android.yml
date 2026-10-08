@@ -2,6 +2,8 @@ name: Build KaraokeFlow Beta APK
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 jobs:
   build:
@@ -15,9 +17,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
+      - name: Verify real SoundFont synthesis
+        run: python3 tools/test_synth.py
+      - name: Install native build tools
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358" "cmake;3.22.1"'
+      - name: Test and build debug APK
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: KaraokeFlow-Beta-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

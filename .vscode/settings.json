@@ -1,0 +1,13 @@
+{
+  // VS Code Java (RedHat) does not understand the Android Gradle plugin on its own,
+  // so MainActivity.java shows "not on the classpath ... only syntax errors are reported".
+  // This is an IDE-only warning: the Gradle build (./gradlew :app:assembleDebug) is the source of truth.
+  // These settings silence that warning and give the language server android.jar so
+  // android.* imports resolve for syntax highlighting.
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.import.gradle.enabled": true,
+  "java.errors.incompleteClasspath.severity": "ignore",
+  "java.project.referencedLibraries": [
+    "C:\\Android\\platforms\\android-35\\android.jar"
+  ]
+}

@@ -1,21 +1,708 @@
 package com.karaokeflow.app;
 
-import android.app.*; import android.os.*; import android.content.*; import android.graphics.Color; import android.net.Uri; import android.graphics.drawable.GradientDrawable; import android.view.*; import android.widget.*; import java.io.*; import java.util.*;
+import android.app.Activity;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Bundle;
+import android.provider.OpenableColumns;
+import android.text.Editable;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.TextWatcher;
+import android.text.style.ForegroundColorSpan;
+import android.view.View;
+import android.view.Gravity;
+import android.view.WindowManager;
+import android.widget.*;
+import java.io.File;
+import java.io.InputStream;
+import java.util.*;
+import java.util.concurrent.*;
 
-public class MainActivity extends Activity {
- static final int CSV=1,FOLDER=2,SF2=3; final ArrayList<Song> songs=new ArrayList<>(); LinearLayout list; EditText search; TextView status;
- static class Song { int id; String title,artist,file; Song(int i,String t,String a,String f){id=i;title=t;artist=a;file=f;} }
- int dp(int x){return (int)(x*getResources().getDisplayMetrics().density+.5f);} GradientDrawable bg(int c,int r){GradientDrawable g=new GradientDrawable();g.setColor(c);g.setCornerRadius(dp(r));return g;}
- TextView tv(String s,int z,int c){TextView v=new TextView(this);v.setText(s);v.setTextSize(z);v.setTextColor(c);v.setPadding(dp(5),dp(6),dp(5),dp(6));return v;}
- public void onCreate(Bundle b){super.onCreate(b); ScrollView sc=new ScrollView(this); LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(18),dp(18),dp(18),dp(30));root.setBackgroundColor(Color.rgb(8,11,18));sc.addView(root);setContentView(sc);
-  TextView brand=tv("KaraokeFlow",30,Color.WHITE);brand.setTypeface(null,1);root.addView(brand);root.addView(tv("Your songs. Your stage.",14,0xff9da3b5));
-  search=new EditText(this);search.setHint("Search title, artist or song #");search.setHintTextColor(0xff777e95);search.setTextColor(Color.WHITE);search.setSingleLine();search.setBackground(bg(0xff181c2a,18));search.setPadding(dp(16),0,dp(16),0);LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(-1,dp(54));qp.setMargins(0,dp(18),0,dp(12));root.addView(search,qp);
-  search.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int d){}public void onTextChanged(CharSequence s,int a,int b,int c){render(s.toString());}public void afterTextChanged(android.text.Editable e){}});
-  LinearLayout row=new LinearLayout(this);row.addView(btn("Import CSV",CSV),new LinearLayout.LayoutParams(0,dp(48),1));row.addView(btn("MIDI Folder",FOLDER),new LinearLayout.LayoutParams(0,dp(48),1));row.addView(btn("SoundFont",SF2),new LinearLayout.LayoutParams(0,dp(48),1));root.addView(row);
-  status=tv("Import mkmd_catalog_probe.csv, choose SongHub_Extracted, then choose your .sf2.",13,0xffa5aabe);root.addView(status);TextView h=tv("Songs",20,Color.WHITE);h.setTypeface(null,1);root.addView(h);list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);root.addView(list);render(""); }
- Button btn(String s,int r){Button b=new Button(this);b.setText(s);b.setTextSize(11);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setOnClickListener(v->{Intent i;if(r==FOLDER)i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);else{i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType(r==CSV?"text/*":"*/*");}startActivityForResult(i,r);});return b;}
- protected void onActivityResult(int r,int c,Intent d){super.onActivityResult(r,c,d);if(c!=RESULT_OK||d==null||d.getData()==null)return;Uri u=d.getData();try{getContentResolver().takePersistableUriPermission(u,d.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION));}catch(Exception ignored){}if(r==CSV)load(u);else if(r==FOLDER){getPreferences(0).edit().putString("midi",u.toString()).apply();status.setText("MIDI folder selected.");}else{getPreferences(0).edit().putString("sf2",u.toString()).apply();status.setText("SoundFont selected. Audio engine is the next beta milestone.");}}
- void load(Uri u){songs.clear();try(BufferedReader br=new BufferedReader(new InputStreamReader(getContentResolver().openInputStream(u)))){br.readLine();String line;while((line=br.readLine())!=null){List<String> c=csv(line);if(c.size()<6)continue;try{songs.add(new Song(Integer.parseInt(c.get(0).trim()),c.get(2),c.get(3),c.get(5)));}catch(Exception ignored){}}status.setText("Catalog loaded: "+songs.size()+" songs.");}catch(Exception e){status.setText("Import failed: "+e.getMessage());}render(search.getText().toString());}
- List<String> csv(String s){ArrayList<String> o=new ArrayList<>();StringBuilder x=new StringBuilder();boolean q=false;for(int i=0;i<s.length();i++){char ch=s.charAt(i);if(ch=='\"'){if(q&&i+1<s.length()&&s.charAt(i+1)=='\"'){x.append('\"');i++;}else q=!q;}else if(ch==','&&!q){o.add(x.toString());x.setLength(0);}else x.append(ch);}o.add(x.toString());return o;}
- void render(String z){list.removeAllViews();String q=z.trim().toLowerCase(Locale.ROOT);int n=0;for(Song s:songs){String id=String.format(Locale.ROOT,"%06d",s.id);if(!q.isEmpty()&&!s.title.toLowerCase(Locale.ROOT).contains(q)&&!s.artist.toLowerCase(Locale.ROOT).contains(q)&&!id.contains(q))continue;LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(14),dp(8),dp(14),dp(8));card.setBackground(bg(0xff141824,15));TextView t=tv(s.title.isEmpty()?"Untitled":s.title,17,Color.WHITE);t.setTypeface(null,1);card.addView(t);card.addView(tv("#"+id+"  •  "+(s.artist.isEmpty()?"Unknown artist":s.artist),13,0xffaab0c5));card.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(s.title).setMessage("Song #"+id+"\n"+s.artist+"\n\nMIDI: "+s.file).setPositiveButton("OK",null).show());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(8));list.addView(card,p);if(++n>=100)break;}if(songs.isEmpty())list.addView(tv("Import your catalog to begin.",14,0xff8c92a8));else if(n==0)list.addView(tv("No matching songs.",14,0xff8c92a8));}
+/** Foreground-only beta. Provider I/O and MIDI parsing run off the UI thread. */
+public class MainActivity extends Activity implements PlaybackEngine.Listener {
+    private static final int CSV = 1, FOLDER = 2, SF2 = 3;
+    private static final int MUTED = 0xffa5aabe;
+    private static final int SCREEN_HOME = 0, SCREEN_STAGE = 1, SCREEN_SEARCH = 2;
+    private static final int NAVY_BG = 0xff060913;
+    private static final int STAGE_TOP = 0xff0e4aa8, STAGE_BOTTOM = 0xff061a3a;
+    private static final int CHIP_RED = 0xffd23b2e;
+    private static final int CHIP_ORANGE = 0xffef7d1a;
+    private static final int CHIP_GREEN = 0xff2fae4e;
+    private static final int KEY_BLUE = 0xff1e4fa8;
+    private static final int KEY_DARK = 0xff1c2230;
+    private static final int KEY_PURPLE = 0xff6a2fb3;
+    private static final int DIGIT_YELLOW = 0xffffc21a;
+    private static final int SINGER_YELLOW = 0xffffd21f;
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private List<SongCatalog.Song> songs = new ArrayList<>();
+    private final List<SongCatalog.Song> queue = new ArrayList<>();
+    private boolean showQueue;
+    private int screen = SCREEN_HOME;
+    private final StringBuilder entryDigits = new StringBuilder();
+    private LinearLayout homeRoot, stageRoot, searchRoot;
+    private LinearLayout list;
+    private EditText search;
+    private TextView setupStatus, playerStatus, selectedTitle, currentLyric, nextLyric, clock, results, queueLabel;
+    private TextView libraryTab, queueTab;
+    private TextView stageTitle, stageSinger, numberDisplay, keyChip, tempoChip, melodyChip, reserveBadge;
+    private SeekBar progress;
+    private Button play, pause, stop, next, replay;
+    private SharedPreferences preferences;
+    private SongFiles files;
+    private PlaybackEngine engine;
+    private PlaybackEngine.State state = PlaybackEngine.State.STOPPED;
+    private SongCatalog.Song selected;
+    private MidiSequence prepared;
+    private File selectedFont;
+    private LyricTimeline timeline;
+    private Future<?> preparation;
+    private int request, catalogRequest;
+    private boolean destroyed, foreground;
+
+    @Override public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        preferences = getPreferences(MODE_PRIVATE);
+        files = new SongFiles(this);
+        engine = new PlaybackEngine(this, this);
+        FrameLayout shell = new FrameLayout(this);
+        shell.setBackgroundColor(NAVY_BG);
+        setContentView(shell);
+        homeRoot = buildHome();
+        stageRoot = buildStage();
+        searchRoot = buildSearch();
+        shell.addView(homeRoot, new FrameLayout.LayoutParams(-1, -1));
+        shell.addView(stageRoot, new FrameLayout.LayoutParams(-1, -1));
+        shell.addView(searchRoot, new FrameLayout.LayoutParams(-1, -1));
+        showScreen(SCREEN_HOME);
+        updateSetup(); updateControls(); render("");
+        refreshEntry();
+        String catalog = preferences.getString("catalog", null);
+        if (catalog != null) importCatalog(Uri.parse(catalog));
+    }
+
+    private LinearLayout screenRoot() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(NAVY_BG);
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(insets.getSystemWindowInsetLeft(),
+                    insets.getSystemWindowInsetTop(),
+                    insets.getSystemWindowInsetRight(),
+                    insets.getSystemWindowInsetBottom());
+            return insets;
+        });
+        return root;
+    }
+
+    private LinearLayout buildHome() {
+        LinearLayout root = screenRoot();
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(12), dp(10), dp(12), dp(2));
+        top.addView(menuIcon("\u2699"), new LinearLayout.LayoutParams(dp(48), dp(48)));
+        top.addView(menuIcon("?"), new LinearLayout.LayoutParams(dp(48), dp(48)));
+        TextView date = text("KaraokeFlow MIDI Karaoke", 12, 0xffc9d4ea);
+        date.setGravity(Gravity.END);
+        top.addView(date, new LinearLayout.LayoutParams(0, -2, 1));
+        root.addView(top);
+        TextView brand = text("KARAOKEFLOW", 30, Color.WHITE);
+        brand.setTypeface(null, 1); brand.setGravity(Gravity.CENTER);
+        root.addView(brand);
+        TextView sub = text("MIDI KARAOKE PLATFORM", 13, 0xff9fb4d8);
+        sub.setTypeface(null, 1); sub.setGravity(Gravity.CENTER);
+        sub.setPadding(0, 0, 0, dp(6));
+        root.addView(sub);
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(16), dp(2), dp(16), dp(16));
+        scroll.addView(body, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        body.addView(menuTile("Enter Karaoke", 0xff9c2b6e, 0xffd34a4a, v -> showScreen(SCREEN_STAGE)));
+        LinearLayout row1 = new LinearLayout(this);
+        row1.addView(menuTile("Song Search", 0xff5b2a86, 0xff8b3fb3,
+                v -> { showQueue = false; showScreen(SCREEN_SEARCH); }), new LinearLayout.LayoutParams(0, -2, 1));
+        row1.addView(menuTile("Artist Search", 0xff1e5fa8, 0xff3f8fd1,
+                v -> { showQueue = false; showScreen(SCREEN_SEARCH); }), new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+        rowParams.setMargins(0, dp(8), 0, 0);
+        body.addView(row1, rowParams);
+        LinearLayout row2 = new LinearLayout(this);
+        row2.addView(menuTile("RSV List", 0xffa33d1c, 0xffd17a2a,
+                v -> { showQueue = true; showScreen(SCREEN_SEARCH); }), new LinearLayout.LayoutParams(0, -2, 1));
+        row2.addView(menuTile("New Songs", 0xff2e7d3a, 0xff5cb85c,
+                v -> { showQueue = false; showScreen(SCREEN_SEARCH); }), new LinearLayout.LayoutParams(0, -2, 1));
+        body.addView(row2, rowParams);
+        setupStatus = text("", 11, MUTED);
+        setupStatus.setMaxLines(3);
+        setupStatus.setGravity(Gravity.CENTER);
+        setupStatus.setPadding(0, dp(10), 0, 0);
+        body.addView(setupStatus);
+        LinearLayout setup = new LinearLayout(this);
+        setup.setGravity(Gravity.CENTER_VERTICAL);
+        setup.setPadding(0, dp(8), 0, 0);
+        setup.addView(setupButton("Catalog", v -> openPicker(CSV)), new LinearLayout.LayoutParams(0, dp(48), 1));
+        setup.addView(setupButton("MIDI folder", v -> openPicker(FOLDER)), new LinearLayout.LayoutParams(0, dp(48), 1));
+        setup.addView(setupButton("SoundFont", v -> openPicker(SF2)), new LinearLayout.LayoutParams(0, dp(48), 1));
+        body.addView(setup);
+        return root;
+    }
+    private TextView menuIcon(String glyph) {
+        TextView icon = text(glyph, 20, Color.WHITE);
+        icon.setGravity(Gravity.CENTER);
+        icon.setBackground(background(0xff232c44, 24));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(48));
+        params.setMargins(0, 0, dp(8), 0);
+        icon.setLayoutParams(params);
+        return icon;
+    }
+
+    private LinearLayout menuTile(String label, int start, int end, View.OnClickListener click) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setGravity(Gravity.CENTER);
+        tile.setPadding(dp(12), dp(20), dp(12), dp(20));
+        GradientDrawable shape = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{start, end});
+        shape.setCornerRadius(dp(18));
+        tile.setBackground(shape);
+        tile.setClickable(true); tile.setFocusable(true);
+        tile.setOnClickListener(click);
+        TextView icon = text("\u266A", 44, 0xfff2e8f2);
+        icon.setGravity(Gravity.CENTER);
+        tile.addView(icon);
+        TextView name = text(label, 15, Color.WHITE);
+        name.setTypeface(null, 1); name.setGravity(Gravity.CENTER);
+        tile.addView(name);
+        LinearLayout wrap = new LinearLayout(this);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(dp(4), dp(4), dp(4), dp(4));
+        wrap.addView(tile, params);
+        return wrap;
+    }
+
+    private Button setupButton(String label, View.OnClickListener click) {
+        Button b = button(label, click);
+        b.setBackground(background(0xff232c44, 12));
+        return b;
+    }
+
+    private LinearLayout buildStage() {
+        LinearLayout root = screenRoot();
+        LinearLayout stage = new LinearLayout(this);
+        stage.setOrientation(LinearLayout.VERTICAL);
+        stage.setGravity(Gravity.CENTER_HORIZONTAL);
+        stage.setPadding(dp(16), dp(16), dp(16), dp(12));
+        stage.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{STAGE_TOP, STAGE_BOTTOM}));
+        stageTitle = text("Select a Song", 24, Color.WHITE);
+        stageTitle.setTypeface(null, 1); stageTitle.setGravity(Gravity.CENTER);
+        stageTitle.setShadowLayer(dp(3), 0, 2, 0xff000000);
+        stage.addView(stageTitle);
+        numberDisplay = text("000000", 40, DIGIT_YELLOW);
+        numberDisplay.setTypeface(null, 1); numberDisplay.setGravity(Gravity.CENTER);
+        numberDisplay.setShadowLayer(dp(4), 0, 2, 0xff000000);
+        stage.addView(numberDisplay);
+        stageSinger = text("Singer: -", 14, SINGER_YELLOW);
+        stageSinger.setTypeface(null, 1); stageSinger.setGravity(Gravity.CENTER);
+        stage.addView(stageSinger);
+        selectedTitle = text("Choose a song to begin", 13, 0xffdbe6ff);
+        selectedTitle.setGravity(Gravity.CENTER); selectedTitle.setMaxLines(1);
+        stage.addView(selectedTitle);
+        currentLyric = text("Your lyrics will appear here", 20, Color.WHITE);
+        currentLyric.setGravity(Gravity.CENTER); currentLyric.setMinLines(1); currentLyric.setMaxLines(2);
+        currentLyric.setTypeface(null, 1);
+        currentLyric.setShadowLayer(dp(3), 0, 2, 0xff000000);
+        stage.addView(currentLyric);
+        nextLyric = text("", 13, 0xffbcd0f5); nextLyric.setGravity(Gravity.CENTER);
+        nextLyric.setMaxLines(1); stage.addView(nextLyric);
+        progress = new SeekBar(this); progress.setMax(1000); progress.setProgress(0);
+        progress.setEnabled(false);
+        stage.addView(progress, new LinearLayout.LayoutParams(-1, dp(22)));
+        LinearLayout timeRow = new LinearLayout(this);
+        timeRow.setGravity(Gravity.CENTER_VERTICAL);
+        clock = text("0:00 / 0:00", 11, 0xffdbe6ff); clock.setGravity(Gravity.START);
+        timeRow.addView(clock, new LinearLayout.LayoutParams(0, -2, 1));
+        playerStatus = text("Ready when you are", 11, 0xffdbe6ff); playerStatus.setGravity(Gravity.END);
+        timeRow.addView(playerStatus, new LinearLayout.LayoutParams(0, -2, 2));
+        stage.addView(timeRow);
+        root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1.35f));
+        LinearLayout deck = new LinearLayout(this);
+        deck.setOrientation(LinearLayout.VERTICAL);
+        deck.setBackgroundColor(0xff05070d);
+        deck.setPadding(dp(8), dp(8), dp(8), dp(8));
+        deck.addView(chipRow());
+        deck.addView(transportRow());
+        deck.addView(keypadGrid());
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setGravity(Gravity.CENTER_VERTICAL);
+        bottom.setPadding(0, dp(6), 0, 0);
+        bottom.addView(deckButton("Home", KEY_BLUE, v -> showScreen(SCREEN_HOME)),
+                new LinearLayout.LayoutParams(0, dp(48), 1));
+        reserveBadge = text("RSV: 0", 12, Color.WHITE);
+        reserveBadge.setGravity(Gravity.CENTER);
+        reserveBadge.setBackground(background(KEY_PURPLE, 8));
+        reserveBadge.setOnClickListener(v -> { showQueue = true; showScreen(SCREEN_SEARCH); });
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(0, dp(48), 1);
+        badgeParams.setMargins(dp(6), 0, dp(6), 0);
+        bottom.addView(reserveBadge, badgeParams);
+        bottom.addView(deckButton("Search", KEY_BLUE, v -> showScreen(SCREEN_SEARCH)),
+                new LinearLayout.LayoutParams(0, dp(48), 1));
+        deck.addView(bottom);
+        root.addView(deck, new LinearLayout.LayoutParams(-1, -2));
+        return root;
+    }
+
+    private TextView chip(String label, int color) {
+        TextView chip = text(label, 11, Color.WHITE);
+        chip.setTypeface(null, 1); chip.setGravity(Gravity.CENTER);
+        chip.setBackground(background(color, 8));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(36), 1);
+        params.setMargins(dp(3), dp(6), dp(3), 0);
+        chip.setLayoutParams(params);
+        return chip;
+    }
+
+    private LinearLayout chipRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        keyChip = chip("-  KEY: 0  +", CHIP_RED);
+        tempoChip = chip("-  TEM: 0  +", CHIP_ORANGE);
+        melodyChip = chip("MEL: 60", CHIP_GREEN);
+        row.addView(keyChip, new LinearLayout.LayoutParams(0, dp(36), 1));
+        row.addView(tempoChip, new LinearLayout.LayoutParams(0, dp(36), 1));
+        row.addView(melodyChip, new LinearLayout.LayoutParams(0, dp(36), 1));
+        return row;
+    }
+
+    private Button deckButton(String label, int color, View.OnClickListener click) {
+        Button b = button(label, click);
+        b.setBackground(background(color, 8));
+        return b;
+    }
+
+    private LinearLayout transportRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(6), 0, dp(2));
+        play = deckButton("\u25B6", KEY_BLUE, v -> playSelected());
+        pause = deckButton("\u275A\u275A", KEY_BLUE, v -> engine.pause());
+        stop = deckButton("\u25A0", KEY_BLUE, v -> stopPlayback());
+        next = deckButton("NX", KEY_BLUE, v -> playNext());
+        replay = deckButton("\u21BB", KEY_BLUE, v -> replayCurrent());
+        Button searchKey = deckButton("Q", KEY_BLUE, v -> showScreen(SCREEN_SEARCH));
+        Button prev = deckButton("|<", KEY_BLUE, v -> replayCurrent());
+        play.setContentDescription("Play or resume the selected song");
+        pause.setContentDescription("Pause playback");
+        next.setContentDescription("Play next queued song");
+        replay.setContentDescription("Replay current song from beginning");
+        stop.setContentDescription("Stop playback and return to the beginning");
+        row.addView(searchKey, new LinearLayout.LayoutParams(0, dp(48), 1));
+        row.addView(prev, new LinearLayout.LayoutParams(0, dp(48), 1));
+        row.addView(pause, new LinearLayout.LayoutParams(0, dp(48), 1));
+        row.addView(play, new LinearLayout.LayoutParams(0, dp(48), 1));
+        row.addView(next, new LinearLayout.LayoutParams(0, dp(48), 1));
+        row.addView(stop, new LinearLayout.LayoutParams(0, dp(48), 1));
+        return row;
+    }
+
+    private LinearLayout keypadGrid() {
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        String[][] rows = {{"1", "2", "3"}, {"4", "5", "6"}, {"7", "8", "9"}, {"RES", "0", "CAN"}};
+        for (String[] keys : rows) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            for (String key : keys) {
+                int color = "RES".equals(key) ? CHIP_GREEN : "CAN".equals(key) ? CHIP_RED : KEY_DARK;
+                Button b = deckButton(key, color, v -> onKeypad(key));
+                b.setTextSize(18); b.setTypeface(null, 1);
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(52), 1);
+                params.setMargins(dp(3), dp(3), dp(3), dp(3));
+                row.addView(b, params);
+            }
+            grid.addView(row);
+        }
+        LinearLayout last = new LinearLayout(this);
+        last.setGravity(Gravity.CENTER_VERTICAL);
+        last.setPadding(0, dp(2), 0, 0);
+        Button rsv = deckButton("RSV List", KEY_PURPLE, v -> { showQueue = true; showScreen(SCREEN_SEARCH); });
+        rsv.setTextSize(11);
+        last.addView(rsv, new LinearLayout.LayoutParams(0, dp(48), 1));
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(0, dp(48), 1);
+        gap.setMargins(dp(6), 0, dp(6), 0);
+        last.addView(new Space(this), gap);
+        Button first = deckButton("1st RSV", KEY_BLUE, v -> playNext());
+        first.setTextSize(11);
+        last.addView(first, new LinearLayout.LayoutParams(0, dp(48), 1));
+        grid.addView(last);
+        return grid;
+    }
+
+    private void onKeypad(String key) {
+        if ("CAN".equals(key)) {
+            if (entryDigits.length() > 0) entryDigits.deleteCharAt(entryDigits.length() - 1);
+            else stopPlayback();
+        } else if ("RES".equals(key)) {
+            reserveEntry();
+        } else if (key.matches("[0-9]")) {
+            if (entryDigits.length() >= 6) entryDigits.delete(0, 1);
+            entryDigits.append(key);
+            if (entryDigits.length() == 6) reserveEntry();
+        }
+        refreshEntry();
+    }
+
+    private void refreshEntry() {
+        if (numberDisplay == null) return;
+        String shown = entryDigits.length() == 0 ? "000000"
+                : String.format(Locale.ROOT, "%6s", entryDigits.toString()).replace(' ', '0');
+        numberDisplay.setText(shown);
+    }
+
+    private void updateReserveBadge() {
+        if (reserveBadge != null) reserveBadge.setText("RSV: " + queue.size());
+        if (queueTab != null) queueTab.setText("Up next (" + queue.size() + ")");
+    }
+
+    private void reserveEntry() {
+        if (entryDigits.length() == 0) { playNext(); return; }
+        while (entryDigits.length() < 6) entryDigits.insert(0, "0");
+        String number = entryDigits.toString();
+        entryDigits.setLength(0);
+        SongCatalog.Song match = null;
+        for (SongCatalog.Song song : songs) {
+            if (song.songNumber().equals(number)) { match = song; break; }
+        }
+        if (match != null) {
+            queue.add(match);
+            if (playerStatus != null) playerStatus.setText("Reserved #" + number + ". Tap 1st RSV.");
+            updateControls();
+            updateReserveBadge();
+            refreshEntry();
+        } else if (playerStatus != null) {
+            playerStatus.setText("No song #" + number + ". Search the Songbook.");
+            refreshEntry();
+        }
+    }
+
+    private LinearLayout buildSearch() {
+        LinearLayout root = screenRoot();
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(12), dp(10), dp(12), dp(2));
+        Button back = deckButton("<", KEY_BLUE, v -> showScreen(SCREEN_STAGE));
+        top.addView(back, new LinearLayout.LayoutParams(dp(56), dp(48)));
+        TextView title = text("Songbook", 22, Color.WHITE);
+        title.setTypeface(null, 1);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -2, 1);
+        titleParams.setMargins(dp(10), 0, dp(10), 0);
+        top.addView(title, titleParams);
+        results = text("", 12, MUTED);
+        top.addView(results);
+        root.addView(top);
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setGravity(Gravity.CENTER_VERTICAL);
+        tabs.setPadding(dp(12), 0, dp(12), 0);
+        libraryTab = text("Library", 14, Color.WHITE);
+        libraryTab.setPadding(dp(10), dp(8), dp(10), dp(8));
+        queueTab = text("Up next (0)", 14, MUTED);
+        queueTab.setPadding(dp(10), dp(8), dp(10), dp(8));
+        tabs.addView(libraryTab);
+        tabs.addView(queueTab);
+        root.addView(tabs);
+        libraryTab.setOnClickListener(v -> setTab(false));
+        queueTab.setOnClickListener(v -> setTab(true));
+        search = new EditText(this);
+        search.setHint("Search songs, artists or song #"); search.setHintTextColor(0xff777e95);
+        search.setTextColor(Color.WHITE); search.setSingleLine();
+        search.setBackground(background(0xff181c2a, 16)); search.setPadding(dp(16), 0, dp(16), 0);
+        LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, dp(50));
+        searchParams.setMargins(dp(12), dp(4), dp(12), dp(6));
+        root.addView(search, searchParams);
+        search.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            public void onTextChanged(CharSequence s, int start, int before, int count) { render(s.toString()); }
+            public void afterTextChanged(Editable editable) { }
+        });
+        LinearLayout sources = new LinearLayout(this);
+        sources.setGravity(Gravity.CENTER_VERTICAL);
+        sources.setPadding(dp(12), 0, dp(12), dp(2));
+        sources.addView(setupButton("Catalog", v -> openPicker(CSV)), new LinearLayout.LayoutParams(0, dp(44), 1));
+        sources.addView(setupButton("MIDI folder", v -> openPicker(FOLDER)), new LinearLayout.LayoutParams(0, dp(44), 1));
+        sources.addView(setupButton("SoundFont", v -> openPicker(SF2)), new LinearLayout.LayoutParams(0, dp(44), 1));
+        root.addView(sources);
+        queueLabel = text("", 11, MUTED);
+        queueLabel.setPadding(dp(12), dp(2), dp(12), 0);
+        root.addView(queueLabel);
+        ScrollView scroll = new ScrollView(this);
+        list = new LinearLayout(this); list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(12), dp(6), dp(12), dp(16));
+        scroll.addView(list);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        return root;
+    }
+
+    private void showScreen(int next) {
+        screen = next;
+        if (homeRoot != null) homeRoot.setVisibility(next == SCREEN_HOME ? View.VISIBLE : View.GONE);
+        if (stageRoot != null) stageRoot.setVisibility(next == SCREEN_STAGE ? View.VISIBLE : View.GONE);
+        if (searchRoot != null) searchRoot.setVisibility(next == SCREEN_SEARCH ? View.VISIBLE : View.GONE);
+        if (next == SCREEN_SEARCH && list != null && search != null) render(search.getText().toString());
+    }
+
+    private void openPicker(int code) {
+        Intent intent;
+        if (code == FOLDER) intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        else {
+            intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            // Providers often label CSV and SF2 as application/octet-stream.
+            intent.setType("*/*");
+        }
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent, code);
+    }
+
+    @Override protected void onActivityResult(int code, int result, Intent data) {
+        super.onActivityResult(code, result, data);
+        if (result != RESULT_OK || data == null || data.getData() == null) return;
+        Uri uri = data.getData();
+        try { getContentResolver().takePersistableUriPermission(uri, data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION); }
+        catch (SecurityException ignored) {
+            playerStatus.setText("Temporary file access: choose the files again after restarting.");
+        }
+        if (code == CSV) importCatalog(uri);
+        else if (code == FOLDER || code == SF2) {
+            stopPlayback(); prepared = null; timeline = null;
+            if (code == FOLDER) files = new SongFiles(this);
+            if (code == SF2) selectedFont = null;
+            String key = code == FOLDER ? "midi" : "sf2";
+            preferences.edit().putString(key, uri.toString()).putString(key + "Name", displayName(uri)).apply();
+            updateSetup();
+            playerStatus.setText(code == FOLDER ? "MIDI folder selected. Tap a song or press Play."
+                    : "SoundFont selected. It will load when you play a song.");
+            showLyrics(0);
+        }
+    }
+
+    private String displayName(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) return cursor.getString(0);
+        } catch (Exception ignored) { }
+        String segment = uri.getLastPathSegment();
+        return segment == null ? "Selected" : segment.substring(segment.lastIndexOf(':') + 1);
+    }
+
+    private void importCatalog(Uri uri) {
+        int token = ++catalogRequest;
+        setupStatus.setText("Loading catalog…");
+        io.execute(() -> {
+            try (InputStream input = getContentResolver().openInputStream(uri)) {
+                if (input == null) throw new java.io.IOException("Cannot open the catalog.");
+                List<SongCatalog.Song> loaded = SongCatalog.parse(input);
+                runOnUiThread(() -> {
+                    if (destroyed || token != catalogRequest) return;
+                    songs = loaded; preferences.edit().putString("catalog", uri.toString()).apply();
+                    updateSetup(); render(search.getText().toString());
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    if (destroyed || token != catalogRequest) return;
+                    updateSetup(); playerStatus.setText("Catalog import failed: " + reason(error) + " Choose Import CSV to retry.");
+                });
+            }
+        });
+    }
+
+    private void updateSetup() {
+        String folder = preferences.getString("midiName", preferences.contains("midi") ? "Selected" : "Choose folder");
+        String font = preferences.getString("sf2Name", preferences.contains("sf2") ? "Selected" : "Choose .sf2");
+        setupStatus.setText("MIDI: " + folder + "\nSF2: " + font + "  •  " + songs.size() + " songs");
+    }
+
+    private void selectSong(SongCatalog.Song song) {
+        stopPlayback(); selected = song; prepared = null; timeline = null;
+        String name = song.title.isEmpty() ? "Untitled" : song.title;
+        selectedTitle.setText("#" + song.songNumber() + "  " + name);
+        stageTitle.setText(name);
+        stageSinger.setText("Singer: " + (song.artist.isEmpty() ? "Unknown artist" : song.artist));
+        updateControls(); playSelected();
+    }
+    private void setTab(boolean toQueue) {
+        showQueue = toQueue;
+        if (libraryTab != null) libraryTab.setTextColor(toQueue ? MUTED : Color.WHITE);
+        if (queueTab != null) queueTab.setText("Up next (" + queue.size() + ")");
+        if (queueTab != null) queueTab.setTextColor(toQueue ? Color.WHITE : MUTED);
+        if (search != null) render(search.getText().toString());
+    }
+    private void queueSong(SongCatalog.Song song) {
+        queue.add(song);
+        updateReserveBadge();
+        setTab(true);
+    }
+    private void playNext() {
+        if (!queue.isEmpty()) { selectSong(queue.remove(0)); updateReserveBadge(); }
+    }
+    private void replayCurrent() { if (selected != null) selectSong(selected); }
+
+    private void playSelected() {
+        if (selected == null || !foreground || state == PlaybackEngine.State.LOADING || state == PlaybackEngine.State.PLAYING) return;
+        if (state == PlaybackEngine.State.PAUSED) { engine.resume(); return; }
+        String treeValue = preferences.getString("midi", null), fontValue = preferences.getString("sf2", null);
+        if (treeValue == null || fontValue == null) {
+            playerStatus.setText("Choose a MIDI folder and a .sf2 SoundFont before playing."); return;
+        }
+        if (prepared != null && selectedFont != null && selectedFont.exists()) {
+            state = PlaybackEngine.State.LOADING; updateControls(); showLyrics(0);
+            engine.start(prepared, selectedFont); return;
+        }
+        cancelPreparation();
+        final int token = request;
+        final SongCatalog.Song song = selected;
+        final Uri tree = Uri.parse(treeValue), font = Uri.parse(fontValue);
+        final File cachedFont = selectedFont;
+        final SongFiles sourceFiles = files;
+        state = PlaybackEngine.State.LOADING; playerStatus.setText("Finding MIDI and loading SoundFont…"); updateControls();
+        preparation = io.submit(() -> {
+            try {
+                Uri midi = sourceFiles.findMidi(tree, song);
+                MidiSequence sequence;
+                try (InputStream input = sourceFiles.openMidi(midi)) { sequence = MidiSequence.parse(input); }
+                if (Thread.currentThread().isInterrupted()) return;
+                File soundFont = cachedFont != null && cachedFont.exists() ? cachedFont : sourceFiles.cacheSoundFont(font);
+                runOnUiThread(() -> {
+                    if (destroyed || token != request || !foreground) return;
+                    preparation = null; prepared = sequence; selectedFont = soundFont;
+                    timeline = new LyricTimeline(sequence); showLyrics(0); engine.start(sequence, soundFont);
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    if (destroyed || token != request) return;
+                    preparation = null; state = PlaybackEngine.State.ERROR;
+                    playerStatus.setText("Cannot play: " + reason(error)); updateControls();
+                });
+            }
+        });
+    }
+
+    private void cancelPreparation() {
+        request++;
+        if (preparation != null) { preparation.cancel(true); preparation = null; }
+    }
+    private void stopPlayback() {
+        cancelPreparation(); engine.stop(); state = PlaybackEngine.State.STOPPED;
+        showLyrics(0); playerStatus.setText("Stopped. Press Play to start from the beginning."); updateControls();
+    }
+    @Override public void onStateChanged(PlaybackEngine.State newState, String message) {
+        if (destroyed || (newState == PlaybackEngine.State.STOPPED && preparation != null)) return;
+        state = newState; playerStatus.setText(message);
+        if (state == PlaybackEngine.State.STOPPED) showLyrics(0);
+        if (state == PlaybackEngine.State.PLAYING) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        updateControls();
+    }
+    @Override public void onPosition(long micros) { if (!destroyed) showLyrics(micros); }
+    @Override public void onError(String message) {
+        if (destroyed) return;
+        state = PlaybackEngine.State.ERROR; playerStatus.setText("Playback failed: " + message);
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); updateControls();
+    }
+    private void showLyrics(long micros) {
+        if (clock == null) return;
+        long duration = prepared == null ? 0 : prepared.durationMicros;
+        clock.setText(time(micros) + " / " + time(duration));
+        progress.setProgress(duration <= 0 ? 0 : (int) Math.min(1000, micros * 1000L / duration));
+        if (timeline == null) { currentLyric.setText("Your lyrics will appear here"); nextLyric.setText(""); }
+        else if (prepared.lyrics.isEmpty()) { currentLyric.setText("Instrumental / no lyrics in this MIDI"); nextLyric.setText(""); }
+        else {
+            LyricTimeline.Cue cue = timeline.at(micros);
+            SpannableString line = new SpannableString(cue.line.isEmpty() ? "Music intro…" : cue.line);
+            int sung = Math.min(cue.sungCharacters, line.length());
+            if (sung > 0) line.setSpan(new ForegroundColorSpan(0xffb7a0ff), 0, sung, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            currentLyric.setText(line); nextLyric.setText(cue.nextLine);
+        }
+    }
+    private void updateControls() {
+        if (play == null || pause == null || stop == null) return;
+        play.setEnabled(selected != null && state != PlaybackEngine.State.LOADING && state != PlaybackEngine.State.PLAYING);
+        pause.setEnabled(state == PlaybackEngine.State.PLAYING);
+        stop.setEnabled(state == PlaybackEngine.State.LOADING || state == PlaybackEngine.State.PLAYING
+                || state == PlaybackEngine.State.PAUSED || state == PlaybackEngine.State.COMPLETED);
+    }
+    private void updateTabs() {
+        if (libraryTab != null) libraryTab.setTextColor(showQueue ? MUTED : Color.WHITE);
+        if (queueTab != null) {
+            queueTab.setText("Up next (" + queue.size() + ")");
+            queueTab.setTextColor(showQueue ? Color.WHITE : MUTED);
+        }
+        if (queueLabel != null) queueLabel.setText(showQueue && queue.isEmpty()
+                ? "Reserve songs with the keypad or Songbook." : "");
+    }
+    private void render(String query) {
+        if (list == null || results == null) return;
+        list.removeAllViews(); String needle = query.trim().toLowerCase(Locale.ROOT); int count = 0;
+        List<SongCatalog.Song> source = showQueue ? queue : songs;
+        for (SongCatalog.Song song : source) {
+            if (!showQueue && !needle.isEmpty() && !song.title.toLowerCase(Locale.ROOT).contains(needle)
+                    && !song.artist.toLowerCase(Locale.ROOT).contains(needle) && !song.songNumber().contains(needle)) continue;
+            if (++count > 100) continue;
+            LinearLayout card = new LinearLayout(this); card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(14), dp(7), dp(14), dp(7)); card.setBackground(background(0xff141824, 14));
+            TextView title = text(song.title.isEmpty() ? "Untitled" : song.title, 17, Color.WHITE);
+            title.setTypeface(null, 1); card.addView(title);
+            card.addView(text("#" + song.songNumber() + "  •  " + (song.artist.isEmpty() ? "Unknown artist" : song.artist), 13, MUTED));
+            card.setClickable(true); card.setFocusable(true);
+            card.setContentDescription("Play " + song.title + ", song " + song.songNumber());
+            card.setOnClickListener(v -> selectSong(song));
+            Button reserve = button(showQueue ? "Play now" : "RSV", v -> {
+                if (showQueue) playNext();
+                else { queue.add(song); updateReserveBadge(); playerStatus.setText("Reserved #" + song.songNumber() + "."); }
+            });
+            reserve.setBackground(background(KEY_PURPLE, 8));
+            card.addView(reserve, new LinearLayout.LayoutParams(-1, dp(40)));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.setMargins(0, 0, 0, dp(8)); list.addView(card, params);
+        }
+        if (showQueue) results.setText(queue.size() + " reserved");
+        else results.setText(count > 100 ? "First 100 of " + count + " matches. Search to narrow the list." : count + " matching songs");
+        if (showQueue && queue.isEmpty()) list.addView(text("No reservations yet. Type a number on the keypad.", 14, MUTED));
+        else if (songs.isEmpty()) list.addView(text("Import your catalog to begin.", 14, MUTED));
+        else if (count == 0) list.addView(text("No matching songs.", 14, MUTED));
+        updateTabs();
+    }
+    @Override protected void onResume() { super.onResume(); foreground = true; }
+    @Override protected void onPause() {
+        foreground = false;
+        if (preparation != null) stopPlayback();
+        engine.pause(); super.onPause();
+    }
+    @Override protected void onDestroy() {
+        destroyed = true; catalogRequest++; cancelPreparation(); engine.close(); io.shutdownNow(); super.onDestroy();
+    }
+    private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + .5f); }
+    private GradientDrawable background(int color, int radius) {
+        GradientDrawable shape = new GradientDrawable(); shape.setColor(color); shape.setCornerRadius(dp(radius)); return shape;
+    }
+    private TextView text(String value, int size, int color) {
+        TextView view = new TextView(this); view.setText(value); view.setTextSize(size); view.setTextColor(color);
+        view.setPadding(dp(4), dp(4), dp(4), dp(4)); return view;
+    }
+    private Button button(String value, View.OnClickListener click) {
+        Button b = new Button(this); b.setText(value); b.setTextSize(11); b.setAllCaps(false);
+        b.setTextColor(Color.WHITE); b.setOnClickListener(click); return b;
+    }
+    private LinearLayout.LayoutParams weightedButton() { return new LinearLayout.LayoutParams(0, dp(48), 1); }
+    // Second transport row is built inline in onCreate.
+    private static String time(long micros) {
+        long seconds = Math.max(0, micros / 1000000L);
+        return String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
+    }
+    private static String reason(Exception error) {
+        return error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+    }
 }
