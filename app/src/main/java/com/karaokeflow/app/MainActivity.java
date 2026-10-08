@@ -487,7 +487,12 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         else if (code == FOLDER || code == SF2) {
             stopPlayback(); prepared = null; timeline = null;
             if (code == FOLDER) files = new SongFiles(this);
-            if (code == SF2) selectedFont = null;
+            if (code == SF2) {
+                selectedFont = null;
+                engine.invalidateSoundFont();
+                try { files.invalidateSoundFont(uri); }
+                catch (Exception error) { playerStatus.setText("SoundFont cache refresh failed: " + reason(error)); }
+            }
             String key = code == FOLDER ? "midi" : "sf2";
             preferences.edit().putString(key, uri.toString()).putString(key + "Name", displayName(uri)).apply();
             updateSetup();
@@ -532,11 +537,26 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         prepared = null;
         timeline = null;
         selectedFont = null;
-        files.clearFolderCache();
-        String font = preferences.getString("sf2", null);
-        if (font != null) files.invalidateSoundFont(Uri.parse(font));
-        updateSetup();
-        playerStatus.setText("File caches cleared. The next Play will reload the selected files.");
+        final SongFiles sourceFiles = files;
+        final String font = preferences.getString("sf2", null);
+        playerStatus.setText("Clearing file caches…");
+        io.execute(() -> {
+            try {
+                sourceFiles.clearFolderCache();
+                if (font != null) sourceFiles.invalidateSoundFont(Uri.parse(font));
+                runOnUiThread(() -> {
+                    if (destroyed) return;
+                    updateSetup();
+                    playerStatus.setText("File caches cleared. The next Play will reload the selected files.");
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    if (destroyed) return;
+                    updateSetup();
+                    playerStatus.setText("Cache refresh failed: " + reason(error));
+                });
+            }
+        });
     }
 
     private void updateSetup() {
