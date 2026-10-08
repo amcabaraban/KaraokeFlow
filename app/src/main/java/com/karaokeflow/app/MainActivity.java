@@ -73,6 +73,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private boolean destroyed, foreground;
     private boolean landscapeKeypadVisible = true;
     private long lastPositionMicros;
+    private String playerMessage = "Ready when you are";
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -249,7 +250,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         clock = text("0:00 / 0:00", 11, 0xffdbe6ff);
         clock.setGravity(Gravity.START);
         timeRow.addView(clock, new LinearLayout.LayoutParams(0, -2, 1));
-        playerStatus = text("Ready when you are", 11, 0xffdbe6ff);
+        playerStatus = text(playerMessage, 11, 0xffdbe6ff);
         playerStatus.setGravity(Gravity.END);
         timeRow.addView(playerStatus, new LinearLayout.LayoutParams(0, -2, 2));
         info.addView(timeRow);
@@ -361,6 +362,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             stageSinger.setText("Singer: " + (selected.artist.isEmpty() ? "Unknown artist" : selected.artist));
             selectedTitle.setText("#" + selected.songNumber() + "  " + name);
         }
+        playerStatus.setText(playerMessage);
         updateStageMeta();
         if (prepared != null) {
             if (timeline == null) timeline = new LyricTimeline(prepared);
@@ -721,11 +723,14 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         lastPositionMicros = 0;
         showLyrics(0);
         updateStageMeta();
-        playerStatus.setText("Stopped. Press Play to start from the beginning."); updateControls();
+        playerMessage = "Stopped. Press Play to start from the beginning.";
+        playerStatus.setText(playerMessage); updateControls();
     }
     @Override public void onStateChanged(PlaybackEngine.State newState, String message) {
         if (destroyed || (newState == PlaybackEngine.State.STOPPED && preparation != null)) return;
-        state = newState; playerStatus.setText(message);
+        state = newState;
+        playerMessage = message;
+        playerStatus.setText(message);
         if (state == PlaybackEngine.State.STOPPED) {
             lastPositionMicros = 0;
             showLyrics(0);
@@ -746,7 +751,9 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     }
     @Override public void onError(String message) {
         if (destroyed) return;
-        state = PlaybackEngine.State.ERROR; playerStatus.setText("Playback failed: " + message);
+        state = PlaybackEngine.State.ERROR;
+        playerMessage = "Playback failed: " + message;
+        playerStatus.setText(playerMessage);
         updateStageMeta();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); updateControls();
     }
