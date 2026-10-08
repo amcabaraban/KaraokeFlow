@@ -8,6 +8,8 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.text.Editable;
 import android.text.SpannableString;
@@ -39,6 +41,9 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private static final int DIGIT_YELLOW = 0xffffc21a;
     private static final int SINGER_YELLOW = 0xffffd21f;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private Runnable pendingSearch;
+    private int searchGeneration;
     private List<SongCatalog.Song> songs = new ArrayList<>();
     private final List<SongCatalog.Song> queue = new ArrayList<>();
     private boolean showQueue;
@@ -149,6 +154,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         setup.addView(setupButton("Catalog", v -> openPicker(CSV)), new LinearLayout.LayoutParams(0, dp(48), 1));
         setup.addView(setupButton("MIDI folder", v -> openPicker(FOLDER)), new LinearLayout.LayoutParams(0, dp(48), 1));
         setup.addView(setupButton("SoundFont", v -> openPicker(SF2)), new LinearLayout.LayoutParams(0, dp(48), 1));
+        setup.addView(setupButton("Refresh", v -> refreshSources()), new LinearLayout.LayoutParams(0, dp(48), 1));
         body.addView(setup);
         return root;
     }
@@ -426,7 +432,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         root.addView(search, searchParams);
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            public void onTextChanged(CharSequence s, int start, int before, int count) { render(s.toString()); }
+            public void onTextChanged(CharSequence s, int start, int before, int count) { scheduleRender(s.toString()); }
             public void afterTextChanged(Editable editable) { }
         });
         LinearLayout sources = new LinearLayout(this);
@@ -435,6 +441,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         sources.addView(setupButton("Catalog", v -> openPicker(CSV)), new LinearLayout.LayoutParams(0, dp(44), 1));
         sources.addView(setupButton("MIDI folder", v -> openPicker(FOLDER)), new LinearLayout.LayoutParams(0, dp(44), 1));
         sources.addView(setupButton("SoundFont", v -> openPicker(SF2)), new LinearLayout.LayoutParams(0, dp(44), 1));
+        sources.addView(setupButton("Refresh", v -> refreshSources()), new LinearLayout.LayoutParams(0, dp(44), 1));
         root.addView(sources);
         queueLabel = text("", 11, MUTED);
         queueLabel.setPadding(dp(12), dp(2), dp(12), 0);
@@ -519,6 +526,19 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         });
     }
 
+    private void refreshSources() {
+        stopPlayback();
+        engine.invalidateSoundFont();
+        prepared = null;
+        timeline = null;
+        selectedFont = null;
+        files.clearFolderCache();
+        String font = preferences.getString("sf2", null);
+        if (font != null) files.invalidateSoundFont(Uri.parse(font));
+        updateSetup();
+        playerStatus.setText("File caches cleared. The next Play will reload the selected files.");
+    }
+
     private void updateSetup() {
         String folder = preferences.getString("midiName", preferences.contains("midi") ? "Selected" : "Choose folder");
         String font = preferences.getString("sf2Name", preferences.contains("sf2") ? "Selected" : "Choose .sf2");
@@ -526,6 +546,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     }
 
     private void selectSong(SongCatalog.Song song) {
+        showScreen(SCREEN_STAGE);
         stopPlayback(); selected = song; prepared = null; timeline = null;
         String name = song.title.isEmpty() ? "Untitled" : song.title;
         selectedTitle.setText("#" + song.songNumber() + "  " + name);
@@ -546,8 +567,21 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         setTab(true);
     }
     private void playNext() {
-        if (!queue.isEmpty()) { selectSong(queue.remove(0)); updateReserveBadge(); }
+        if (queue.isEmpty()) return;
+        SongCatalog.Song song = queue.remove(0);
+        updateReserveBadge();
+        if (screen == SCREEN_SEARCH) render(search.getText().toString());
+        selectSong(song);
     }
+
+    private void playReservedAt(int index) {
+        if (index < 0 || index >= queue.size()) return;
+        SongCatalog.Song song = queue.remove(index);
+        updateReserveBadge();
+        if (screen == SCREEN_SEARCH) render(search.getText().toString());
+        selectSong(song);
+    }
+
     private void replayCurrent() { if (selected != null) selectSong(selected); }
 
     private void playSelected() {
@@ -634,6 +668,15 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         stop.setEnabled(state == PlaybackEngine.State.LOADING || state == PlaybackEngine.State.PLAYING
                 || state == PlaybackEngine.State.PAUSED || state == PlaybackEngine.State.COMPLETED);
     }
+    private void scheduleRender(String query) {
+        if (pendingSearch != null) ui.removeCallbacks(pendingSearch);
+        final int token = ++searchGeneration;
+        pendingSearch = () -> {
+            if (!destroyed && token == searchGeneration) render(query);
+        };
+        ui.postDelayed(pendingSearch, 180);
+    }
+
     private void updateTabs() {
         if (libraryTab != null) libraryTab.setTextColor(showQueue ? MUTED : Color.WHITE);
         if (queueTab != null) {
@@ -647,7 +690,9 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         if (list == null || results == null) return;
         list.removeAllViews(); String needle = query.trim().toLowerCase(Locale.ROOT); int count = 0;
         List<SongCatalog.Song> source = showQueue ? queue : songs;
-        for (SongCatalog.Song song : source) {
+        for (int sourceIndex = 0; sourceIndex < source.size(); sourceIndex++) {
+            SongCatalog.Song song = source.get(sourceIndex);
+            final int rowIndex = sourceIndex;
             if (!showQueue && !needle.isEmpty() && !song.title.toLowerCase(Locale.ROOT).contains(needle)
                     && !song.artist.toLowerCase(Locale.ROOT).contains(needle) && !song.songNumber().contains(needle)) continue;
             if (++count > 100) continue;
@@ -660,8 +705,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             card.setContentDescription("Play " + song.title + ", song " + song.songNumber());
             card.setOnClickListener(v -> selectSong(song));
             Button reserve = button(showQueue ? "Play now" : "RSV", v -> {
-                if (showQueue) playNext();
-                else { queue.add(song); updateReserveBadge(); playerStatus.setText("Reserved #" + song.songNumber() + "."); }
+                if (showQueue) playReservedAt(rowIndex);
+                else { queue.add(song); updateReserveBadge(); updateTabs(); playerStatus.setText("Reserved #" + song.songNumber() + "."); }
             });
             reserve.setBackground(background(KEY_PURPLE, 8));
             card.addView(reserve, new LinearLayout.LayoutParams(-1, dp(40)));
@@ -682,7 +727,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         engine.pause(); super.onPause();
     }
     @Override protected void onDestroy() {
-        destroyed = true; catalogRequest++; cancelPreparation(); engine.close(); io.shutdownNow(); super.onDestroy();
+        destroyed = true; catalogRequest++; searchGeneration++; if (pendingSearch != null) ui.removeCallbacks(pendingSearch); cancelPreparation(); engine.close(); io.shutdownNow(); super.onDestroy();
     }
     private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + .5f); }
     private GradientDrawable background(int color, int radius) {
