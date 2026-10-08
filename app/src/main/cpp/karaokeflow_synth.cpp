@@ -310,6 +310,23 @@ Java_com_karaokeflow_app_NativeSynth_nativeRender(JNIEnv* env, jclass, jlong han
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_karaokeflow_app_NativeSynth_nativeReset(JNIEnv* env, jclass, jlong handle) {
+    std::lock_guard<std::mutex> lock(registryMutex);
+    tsf* font = lookup(env, handle);
+    if (!font) return;
+    // Start each song from a clean channel/voice state while retaining the decoded SF2.
+    tsf_reset(font);
+    if (font->voices) {
+        for (int i = 0; i < font->voiceNum; ++i) font->voices[i].playingPreset = -1;
+    }
+    for (int channel = 0; channel < 16; ++channel) {
+        if (!tsf_channel_set_presetnumber(font, channel, 0, channel == 9)) {
+            tsf_channel_set_presetindex(font, channel, 0);
+        }
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_karaokeflow_app_NativeSynth_nativeReleaseNotes(JNIEnv* env, jclass, jlong handle) {
     std::lock_guard<std::mutex> lock(registryMutex);
     tsf* font = lookup(env, handle);
