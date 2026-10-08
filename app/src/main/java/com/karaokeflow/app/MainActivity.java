@@ -126,14 +126,11 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         scroll.addView(body, new LinearLayout.LayoutParams(-1, -2));
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         body.addView(menuTile("Enter Karaoke", 0xff9c2b6e, 0xffd34a4a, v -> showScreen(SCREEN_STAGE)));
-        LinearLayout row = new LinearLayout(this);
-        row.addView(menuTile("Songbook", 0xff5b2a86, 0xff8b3fb3,
-                v -> { showQueue = false; showScreen(SCREEN_SEARCH); }), new LinearLayout.LayoutParams(0, -2, 1));
-        row.addView(menuTile("RSV List", 0xffa33d1c, 0xffd17a2a,
-                v -> { showQueue = true; showScreen(SCREEN_SEARCH); }), new LinearLayout.LayoutParams(0, -2, 1));
-        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
-        rowParams.setMargins(0, dp(8), 0, 0);
-        body.addView(row, rowParams);
+        LinearLayout songbook = menuTile("Songbook", 0xff5b2a86, 0xff8b3fb3,
+                v -> { showQueue = false; showScreen(SCREEN_SEARCH); });
+        LinearLayout.LayoutParams songbookParams = new LinearLayout.LayoutParams(-1, -2);
+        songbookParams.setMargins(0, dp(8), 0, 0);
+        body.addView(songbook, songbookParams);
         setupStatus = text("", 11, MUTED);
         setupStatus.setMaxLines(3);
         setupStatus.setGravity(Gravity.CENTER);
