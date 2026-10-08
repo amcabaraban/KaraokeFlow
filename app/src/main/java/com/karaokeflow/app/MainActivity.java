@@ -587,7 +587,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         if (state == PlaybackEngine.State.STOPPED) showLyrics(0);
         if (state == PlaybackEngine.State.PLAYING) {
             entryDigits.setLength(0);
-            refreshEntry();
+            if (numberDisplay != null) numberDisplay.setText("");
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         } else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         updateControls();
