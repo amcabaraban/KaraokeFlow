@@ -61,7 +61,9 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private final StringBuilder entryDigits = new StringBuilder();
     private LinearLayout homeRoot, searchRoot;
     private FrameLayout stageRoot, shell;
-    private LinearLayout landscapePanel, stageBody;
+    private LinearLayout landscapePanel, stageBody, liveReservationEntry;
+    private TextView liveReservationNumber, liveReservationTitle;
+    private ProgressBar loadingAnimation;
     private int panelWidth;
     private Button keypadToggle;
     private LinearLayout list;
@@ -247,6 +249,32 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         upcomingTitle.setMaxLines(2);
         upcomingTitle.setShadowLayer(dp(3), 0, 1, Color.BLACK);
         body.addView(upcomingTitle, new LinearLayout.LayoutParams(-1, -2));
+        loadingAnimation = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        loadingAnimation.setIndeterminate(true);
+        loadingAnimation.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(0xff24d3ee));
+        loadingAnimation.setContentDescription("Loading song");
+        LinearLayout.LayoutParams loadingParams = new LinearLayout.LayoutParams(-1, dp(6));
+        loadingParams.setMargins(dp(4), dp(6), dp(4), dp(12));
+        body.addView(loadingAnimation, loadingParams);
+        loadingAnimation.setVisibility(View.GONE);
+
+        liveReservationEntry = new LinearLayout(this);
+        liveReservationEntry.setGravity(Gravity.CENTER_VERTICAL);
+        liveReservationEntry.setPadding(dp(8), dp(4), dp(8), dp(4));
+        liveReservationEntry.setBackground(background(0xbb071624, 10));
+        liveReservationNumber = text("", landscape ? 20 : 18, DIGIT_YELLOW);
+        liveReservationNumber.setTypeface(null, 1);
+        liveReservationEntry.addView(liveReservationNumber,
+                new LinearLayout.LayoutParams(dp(84), -2));
+        liveReservationTitle = text("", landscape ? 14 : 13, 0xffdbe6ff);
+        liveReservationTitle.setMaxLines(2);
+        liveReservationTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        liveReservationEntry.addView(liveReservationTitle,
+                new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams entryParams = new LinearLayout.LayoutParams(-1, -2);
+        entryParams.setMargins(0, dp(2), 0, dp(20));
+        body.addView(liveReservationEntry, entryParams);
+        liveReservationEntry.setVisibility(View.GONE);
         updateReserveBadge();
 
         LinearLayout info = new LinearLayout(this);
@@ -456,9 +484,9 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         }
         stageTitle.setText("SELECT SONGS");
         stageTitle.setVisibility(singing || loading ? View.GONE : View.VISIBLE);
-        numberDisplay.setVisibility(entering || (!singing && !loading) ? View.VISIBLE : View.GONE);
+        numberDisplay.setVisibility(!singing && (entering || !loading) ? View.VISIBLE : View.GONE);
         stageSinger.setVisibility(View.GONE);
-        selectedTitle.setVisibility(entering ? View.VISIBLE : View.GONE);
+        selectedTitle.setVisibility(entering && !singing ? View.VISIBLE : View.GONE);
         if (entering) {
             List<SongCatalog.Song> matches = entryMatches();
             StringBuilder preview = new StringBuilder();
@@ -469,9 +497,15 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             selectedTitle.setMaxLines(3);
             selectedTitle.setText(preview.length() == 0 ? "No matching song" : preview.toString());
         }
+        if (liveReservationEntry != null) {
+            liveReservationEntry.setVisibility(singing && entering ? View.VISIBLE : View.GONE);
+            liveReservationNumber.setText(numberDisplay.getText());
+            liveReservationTitle.setText(selectedTitle.getText());
+        }
+        if (loadingAnimation != null) loadingAnimation.setVisibility(loading ? View.VISIBLE : View.GONE);
         currentLyric.setVisibility(singing && !mediaActive ? View.VISIBLE : View.GONE);
         nextLyric.setVisibility(singing && !mediaActive ? View.VISIBLE : View.GONE);
-        progress.setVisibility(singing || loading ? View.VISIBLE : View.GONE);
+        progress.setVisibility(singing ? View.VISIBLE : View.GONE);
         clock.setVisibility(singing ? View.VISIBLE : View.GONE);
         playerStatus.setVisibility(loading || state == PlaybackEngine.State.ERROR ? View.VISIBLE : View.GONE);
         updateVideoVisibility();
@@ -1140,12 +1174,22 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         else if (prepared.lyrics.isEmpty()) { currentLyric.setText("Instrumental / no lyrics in this MIDI"); nextLyric.setText(""); }
         else {
             LyricTimeline.Cue cue = timeline.at(micros);
-            SpannableString line = new SpannableString(cue.line.isEmpty() ? "Music intro…" : cue.line);
+            SpannableString line = new SpannableString(cue.line.isEmpty() ? "Music intro…" : lyricDisplay(cue.line));
             int sung = Math.min(cue.sungCharacters, line.length());
             if (sung > 0) line.setSpan(new ForegroundColorSpan(0xff24d3ee), 0, sung, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            currentLyric.setText(line); nextLyric.setText(cue.nextLine);
+            currentLyric.setText(line); nextLyric.setText(lyricDisplay(cue.nextLine));
         }
     }
+    // Preserve character positions so placeholder replacement cannot shift lyric highlights.
+    private static String lyricDisplay(String text) {
+        char[] display = text.toCharArray();
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) == '#' && ((i > 0 && text.charAt(i - 1) == '#')
+                    || (i + 1 < text.length() && text.charAt(i + 1) == '#'))) display[i] = '·';
+        }
+        return new String(display);
+    }
+
     private void updateControls() {
         updateStageMeta();
         if (play == null || pause == null || stop == null) return;
