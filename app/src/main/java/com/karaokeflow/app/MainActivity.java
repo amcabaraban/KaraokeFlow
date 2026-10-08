@@ -68,7 +68,9 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private EditText search;
     private TextView setupStatus, playerStatus, selectedTitle, currentLyric, nextLyric, clock, results, queueLabel;
     private TextView libraryTab, queueTab;
-    private TextView stageTitle, stageSinger, numberDisplay, reserveBadge;
+    private TextView stageTitle, stageSinger, numberDisplay, reserveBadge, reservedNumbers, upcomingTitle;
+    private HorizontalScrollView reservationStrip;
+    private Runnable pendingSongStart;
     private SeekBar progress;
     private Button play, pause, stop, next;
     private SharedPreferences preferences;
@@ -230,6 +232,22 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         body.setPadding(dp(horizontal), dp(landscape ? 12 : 16),
                 dp(horizontal), dp(landscape ? 10 : 12));
         root.addView(body, new FrameLayout.LayoutParams(-1, -1));
+
+        reservationStrip = new HorizontalScrollView(this);
+        reservationStrip.setHorizontalScrollBarEnabled(false);
+        reservedNumbers = text("", 16, DIGIT_YELLOW);
+        reservedNumbers.setSingleLine(true);
+        reservedNumbers.setTypeface(null, 1);
+        reservedNumbers.setShadowLayer(dp(3), 0, 1, Color.BLACK);
+        reservationStrip.addView(reservedNumbers);
+        body.addView(reservationStrip, new LinearLayout.LayoutParams(-1, dp(36)));
+        upcomingTitle = text("", landscape ? 26 : 22, Color.WHITE);
+        upcomingTitle.setGravity(Gravity.CENTER);
+        upcomingTitle.setTypeface(null, 1);
+        upcomingTitle.setMaxLines(2);
+        upcomingTitle.setShadowLayer(dp(3), 0, 1, Color.BLACK);
+        body.addView(upcomingTitle, new LinearLayout.LayoutParams(-1, -2));
+        updateReserveBadge();
 
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
@@ -411,7 +429,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             String name = selected.title.isEmpty() ? "Untitled" : selected.title;
             stageTitle.setText(name);
             stageSinger.setText("Singer: " + (selected.artist.isEmpty() ? "Unknown artist" : selected.artist));
-            selectedTitle.setText("#" + selected.songNumber() + "  " + name);
+            selectedTitle.setText("· " + selected.songNumber() + "  " + name);
         }
         playerStatus.setText(playerMessage);
         updateStageMeta();
@@ -432,6 +450,10 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         boolean singing = state == PlaybackEngine.State.PLAYING || state == PlaybackEngine.State.PAUSED;
         boolean loading = state == PlaybackEngine.State.LOADING;
         boolean entering = entryDigits.length() > 0;
+        if (upcomingTitle != null) {
+            upcomingTitle.setText(selected == null ? "" : selected.title.isEmpty() ? "Untitled" : selected.title);
+            upcomingTitle.setVisibility(loading && selected != null ? View.VISIBLE : View.GONE);
+        }
         stageTitle.setText("SELECT SONGS");
         stageTitle.setVisibility(singing || loading ? View.GONE : View.VISIBLE);
         numberDisplay.setVisibility(entering || (!singing && !loading) ? View.VISIBLE : View.GONE);
@@ -476,12 +498,12 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         pause = deckButton("\u275A\u275A", KEY_BLUE, v -> pauseCurrent());
         play = deckButton("\u25B6", KEY_BLUE, v -> playEntryOrSelected());
         next = deckButton("▶|", KEY_BLUE, v -> playNext());
-        stop = deckButton("\u25A0", KEY_BLUE, v -> stopPlayback());
+        stop = deckButton("\u25A0", KEY_BLUE, v -> stopAndAdvance());
         replayButton.setContentDescription("Replay current song from the beginning");
         pause.setContentDescription("Pause playback");
         play.setContentDescription("Play or resume the selected song");
         next.setContentDescription("Play the next reserved song");
-        stop.setContentDescription("Stop playback and return to the beginning");
+        stop.setContentDescription("Stop current song and play the next reservation");
         row.addView(replayButton, new LinearLayout.LayoutParams(0, dp(48), 1));
         row.addView(pause, new LinearLayout.LayoutParams(0, dp(48), 1));
         row.addView(play, new LinearLayout.LayoutParams(0, dp(48), 1));
@@ -553,6 +575,18 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     private void updateReserveBadge() {
         if (reserveBadge != null) reserveBadge.setText("Queue · " + queue.size());
         if (queueTab != null) queueTab.setText("Up next (" + queue.size() + ")");
+        if (reservedNumbers != null) {
+            StringBuilder numbers = new StringBuilder();
+            for (SongCatalog.Song song : queue) {
+                if (numbers.length() > 0) numbers.append("  ·  ");
+                numbers.append(song.songNumber());
+            }
+            reservedNumbers.setText(numbers.toString());
+            reservedNumbers.setContentDescription("Reserved songs in order: " + numbers);
+            reservationStrip.setVisibility(queue.isEmpty() ? View.GONE : View.VISIBLE);
+        }
+        if (next != null) next.setEnabled(!queue.isEmpty());
+        if (stop != null) updateControls();
     }
 
     private void reserveEntry() {
@@ -563,12 +597,12 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         SongCatalog.Song match = numberLookup.exact(number);
         if (match != null) {
             queue.add(match);
-            if (playerStatus != null) playerStatus.setText("Reserved #" + number + ". Tap Next to play it.");
+            if (playerStatus != null) playerStatus.setText("Reserved · " + number + ". Tap Next to play it.");
             updateControls();
             updateReserveBadge();
             refreshEntry();
         } else if (playerStatus != null) {
-            Toast.makeText(this, "No song #" + number + ". Search the Songbook.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "No song · " + number + ". Search the Songbook.", Toast.LENGTH_SHORT).show();
             refreshEntry();
         }
     }
@@ -601,7 +635,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         libraryTab.setOnClickListener(v -> setTab(false));
         queueTab.setOnClickListener(v -> setTab(true));
         search = new EditText(this);
-        search.setHint("Search songs, artists or song #"); search.setHintTextColor(0xff777e95);
+        search.setHint("Search songs, artists or song · "); search.setHintTextColor(0xff777e95);
         search.setTextColor(Color.WHITE); search.setSingleLine();
         search.setBackground(background(0xff181c2a, 16)); search.setPadding(dp(16), 0, dp(16), 0);
         LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, dp(50));
@@ -950,11 +984,23 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         showScreen(SCREEN_STAGE);
         stopPlayback(); selected = song; prepared = null; timeline = null;
         String name = song.title.isEmpty() ? "Untitled" : song.title;
-        selectedTitle.setText("#" + song.songNumber() + "  " + name);
+        selectedTitle.setText("· " + song.songNumber() + "  " + name);
         stageTitle.setText(name);
         stageSinger.setText("Singer: " + (song.artist.isEmpty() ? "Unknown artist" : song.artist));
         updateStageMeta();
-        updateControls(); playSelected();
+        // Keep the next title readable even when the MIDI/SF2 is already cached.
+        state = PlaybackEngine.State.LOADING;
+        playerMessage = "Preparing song…";
+        playerStatus.setText(playerMessage);
+        final int token = request;
+        pendingSongStart = () -> {
+            pendingSongStart = null;
+            if (destroyed || !foreground || token != request) return;
+            state = PlaybackEngine.State.STOPPED;
+            playSelected();
+        };
+        updateControls();
+        ui.postDelayed(pendingSongStart, 1200);
     }
     private void setTab(boolean toQueue) {
         showQueue = toQueue;
@@ -963,8 +1009,13 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         if (queueTab != null) queueTab.setTextColor(toQueue ? Color.WHITE : MUTED);
         if (search != null) render(search.getText().toString());
     }
+    private void stopAndAdvance() {
+        if (queue.isEmpty()) stopPlayback();
+        else playNext();
+    }
+
     private void playNext() {
-        if (queue.isEmpty()) return;
+        if (queue.isEmpty()) { stopPlayback(); return; }
         SongCatalog.Song song = queue.remove(0);
         updateReserveBadge();
         if (screen == SCREEN_SEARCH) render(search.getText().toString());
@@ -1031,6 +1082,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
 
     private void cancelPreparation() {
         request++;
+        if (pendingSongStart != null) { ui.removeCallbacks(pendingSongStart); pendingSongStart = null; }
         if (preparation != null) { preparation.cancel(true); preparation = null; }
     }
     private void stopPlayback() {
@@ -1044,7 +1096,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         playerStatus.setText(playerMessage); updateControls();
     }
     @Override public void onStateChanged(PlaybackEngine.State newState, String message) {
-        if (destroyed || (newState == PlaybackEngine.State.STOPPED && preparation != null)) return;
+        if (destroyed || (newState == PlaybackEngine.State.STOPPED && (preparation != null || pendingSongStart != null))) return;
         state = newState;
         playerMessage = message;
         playerStatus.setText(message);
@@ -1098,7 +1150,8 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
         if (play == null || pause == null || stop == null) return;
         play.setEnabled(entryDigits.length() > 0 || (selected != null && state != PlaybackEngine.State.LOADING && state != PlaybackEngine.State.PLAYING));
         pause.setEnabled(state == PlaybackEngine.State.PLAYING);
-        stop.setEnabled(state == PlaybackEngine.State.LOADING || state == PlaybackEngine.State.PLAYING
+        next.setEnabled(!queue.isEmpty());
+        stop.setEnabled(!queue.isEmpty() || state == PlaybackEngine.State.LOADING || state == PlaybackEngine.State.PLAYING
                 || state == PlaybackEngine.State.PAUSED || state == PlaybackEngine.State.COMPLETED);
     }
     private void scheduleRender(String query) {
@@ -1155,13 +1208,13 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
             card.setPadding(dp(14), dp(7), dp(14), dp(7)); card.setBackground(background(0xff141824, 14));
             TextView title = text(song.title.isEmpty() ? "Untitled" : song.title, 17, Color.WHITE);
             title.setTypeface(null, 1); card.addView(title);
-            card.addView(text("#" + song.songNumber() + "  •  " + (song.artist.isEmpty() ? "Unknown artist" : song.artist), 13, MUTED));
+            card.addView(text("· " + song.songNumber() + "  •  " + (song.artist.isEmpty() ? "Unknown artist" : song.artist), 13, MUTED));
             card.setClickable(true); card.setFocusable(true);
             card.setContentDescription("Play " + song.title + ", song " + song.songNumber());
             card.setOnClickListener(v -> { if (queueRows) playReservedAt(rowIndex); else selectSong(song); });
             Button reserve = button(showQueue ? "Play now" : "RSV", v -> {
                 if (showQueue) playReservedAt(rowIndex);
-                else { queue.add(song); updateReserveBadge(); updateTabs(); playerStatus.setText("Reserved #" + song.songNumber() + "."); }
+                else { queue.add(song); updateReserveBadge(); updateTabs(); playerStatus.setText("Reserved · " + song.songNumber() + "."); }
             });
             reserve.setBackground(background(KEY_PURPLE, 8));
             card.addView(reserve, new LinearLayout.LayoutParams(-1, dp(40)));
@@ -1178,7 +1231,7 @@ public class MainActivity extends Activity implements PlaybackEngine.Listener {
     @Override protected void onResume() { super.onResume(); foreground = true; }
     @Override protected void onPause() {
         foreground = false;
-        if (preparation != null) stopPlayback();
+        if (preparation != null || pendingSongStart != null) stopPlayback();
         pauseCurrent(); backdropVideo.pause(); super.onPause();
     }
     @Override protected void onDestroy() {
